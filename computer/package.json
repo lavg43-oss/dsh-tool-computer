@@ -1,0 +1,11 @@
+{
+  "name": "dsh-tool-computer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Computer use para DSH: captura de pantalla con vision, clic, teclado y ventanas en Windows.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  }
+}

@@ -1,0 +1,8 @@
+# Normaliza los finales de linea en el repositorio (LF), sin imponer nada al
+# arbol de trabajo. Windows clona igual y los diffs no se llenan de ruido.
+* text=auto eol=lf
+
+# Binarios: que git no los toque.
+*.png binary
+*.ico binary
+*.exe binary

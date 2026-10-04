@@ -1,13 +1,13 @@
 /**
- * Control de navegador por CDP: la via rapida y determinista frente a los
+ * Browser control over CDP: the fast, deterministic path instead of
  * pixeles.
  *
- * Mirar una captura y estimar coordenadas cuesta una inferencia visual grande y
- * es aproximado. Leer la estructura de la pagina cuesta un texto pequeno y es
- * exacto: los elementos traen a que se refieren, y las acciones se ejecutan por
- * referencia o selector, no por coordenadas adivinadas.
+ * Looking at a capture and estimating coordinates costs a large visual inference
+ * is approximate. Reading the page structure costs a small text and is
+ * exact: elements carry what they refer to, and actions run by
+ * or selector, not by guessed coordinates.
  *
- * La captura sigue existiendo, pero para lo que solo la vista responde.
+ * The capture still exists, but for what only the eye can answer.
  *
  * @module dsh-tool-computer/browser
  */
@@ -15,9 +15,9 @@ import { join } from 'node:path'
 import { BrowserConnection, DEFAULT_PORTS, findBrowser } from './cdp.js'
 
 /**
- * Perfil por defecto de Chrome en Windows, para la via del perfil real.
- * Chrome no abre dos instancias del mismo perfil, asi que esa via exige cerrar
- * Chrome antes.
+ * Default Chrome profile on Windows, for the real-profile mode.
+ * Chrome does not open two instances of the same profile, so that mode requires
+ * closing Chrome first.
  */
 export const DEFAULT_USER_DATA_DIR = join(
   process.env.LOCALAPPDATA ?? '',
@@ -26,60 +26,83 @@ export const DEFAULT_USER_DATA_DIR = join(
   'User Data',
 )
 
-/** Las tres vias de navegador, con lo que implica cada una. */
+/** The three browser modes, with what each one implies. */
 export const BROWSER_MODES = [
   {
-    id: 'perfil-propio',
-    label: 'Perfil propio (recomendado)',
-    description: 'Chrome se abre con un perfil nuevo y aislado: no toca tus pestanas, sesiones ni contrasenas. Hay que iniciar sesion en la plataforma una vez.',
+    id: 'own-profile',
+    label: 'Own profile (recommended)',
+    description: 'Chrome opens with a fresh, isolated profile: it touches none of your tabs, sessions or passwords. You log into the site once.',
   },
   {
-    id: 'perfil-real',
-    label: 'Mi Chrome real',
-    description: 'Usa tu perfil de siempre, con tus sesiones ya abiertas. Requiere cerrar Chrome antes. Todo lo que veas en ese navegador queda visible para el agente.',
+    id: 'real-profile',
+    label: 'My real Chrome',
+    description: 'Uses your everyday profile, with your sessions already open. Requires closing Chrome first. Everything visible in that browser becomes visible to the agent.',
   },
   {
-    id: 'sin-navegador',
-    label: 'Sin navegador',
-    description: 'El agente no toca el navegador en absoluto. Para banca, tramites personales o cualquier cosa que no quieras exponer.',
+    id: 'no-browser',
+    label: 'No browser',
+    description: 'The agent does not touch the browser at all. For banking, personal paperwork, or anything you do not want exposed.',
   },
 ]
 
-/** Error que pide al modelo preguntar al usuario que via usar. */
+/**
+ * The mode names accepted on the wire.
+ *
+ * The English names are canonical. The Spanish ones are kept as aliases because
+ * this tool was first built for a Spanish-speaking user, and asking a human to
+ * switch vocabulary mid-task is worse than accepting both.
+ */
+export const MODE_ALIASES = {
+  'own-profile': 'own-profile',
+  'perfil-propio': 'own-profile',
+  'real-profile': 'real-profile',
+  'perfil-real': 'real-profile',
+  'no-browser': 'no-browser',
+  'sin-navegador': 'no-browser',
+}
+
+/**
+ * Normalize a mode name, accepting the canonical English name or its Spanish alias.
+ * @param value - raw mode value from the model or the configuration.
+ * @returns the canonical mode, or undefined when the value names none.
+ */
+export function normalizeMode(value) {
+  if (typeof value !== 'string') return undefined
+  return MODE_ALIASES[value.trim().toLowerCase()]
+}
+
+/** Error that asks the model to ask the user which mode to use. */
 export class BrowserModeRequired extends Error {
   /**
-   * @param reason - por que hace falta la eleccion.
+   * @param reason - why the choice is needed.
    */
   constructor(reason) {
     const options = BROWSER_MODES.map((mode) => `"${mode.id}" (${mode.label})`).join(', ')
     super([
       `browser: ${reason}`,
-      'Antes de usar el navegador, pregunta al usuario que via quiere para ESTA tarea con ask_user_question, y repite su respuesta en el parametro `mode` de cada llamada:',
+      'Before using the browser, ask the user which mode they want for THIS task with ask_user_question, then repeat their answer in the `mode` parameter of every call:',
       ...BROWSER_MODES.map((mode) => `  - ${mode.id}: ${mode.description}`),
-      `Opciones validas: ${options}.`,
-      'No elijas por tu cuenta, y no reutilices la eleccion de una tarea anterior: el compartimento puede cambiar de una tarea a otra.',
+      `Valid options: ${options}.`,
+      'Do not choose on your own, and do not reuse the choice from an earlier task: the compartment can change from one task to the next.',
     ].join('\n'))
     this.name = 'BrowserModeRequired'
   }
 }
 
 /**
- * Resuelve como conectar el navegador segun la via elegida.
+ * Resolve how to connect the browser for the chosen mode.
  *
- * @param declaredMode - via que pidio el modelo en esta llamada.
- * @param config - configuracion resuelta del plugin.
- * @returns la configuracion de conexion y la via efectiva.
+ * @param declaredMode - mode the model asked for in this call.
+ * @param config - resolved plugin configuration.
+ * @returns the connection configuration and the effective mode.
  */
 export function resolveBrowserMode(declaredMode, config) {
-  const mode = declaredMode ?? config.browserMode
-  if (mode === undefined || mode === null) {
-    throw new BrowserModeRequired('esta llamada no declaro que via de navegador usar')
+  const mode = normalizeMode(declaredMode) ?? normalizeMode(config.browserMode)
+  if (mode === undefined) {
+    throw new BrowserModeRequired('this call did not declare which browser mode to use')
   }
-  if (!BROWSER_MODES.some((entry) => entry.id === mode)) {
-    throw new Error(`browser: via desconocida ${JSON.stringify(mode)}; validas: ${BROWSER_MODES.map((entry) => entry.id).join(', ')}`)
-  }
-  if (mode === 'sin-navegador') {
-    throw new Error('browser: el usuario eligio la via "sin-navegador" para esta tarea, asi que no toco el navegador. Si la tarea necesita el navegador, preguntale de nuevo que via quiere.')
+  if (mode === 'no-browser') {
+    throw new Error('browser: the user chose the "no-browser" mode for this task, so I will not touch the browser. If the task needs it, ask again which mode they want.')
   }
   const base = {
     ports: Array.isArray(config.browserPorts) && config.browserPorts.length > 0 ? config.browserPorts : DEFAULT_PORTS,
@@ -87,14 +110,14 @@ export function resolveBrowserMode(declaredMode, config) {
     maxElements: Number.isSafeInteger(config.maxElements) && config.maxElements > 0 ? config.maxElements : 60,
     maxTextChars: Number.isSafeInteger(config.maxTextChars) && config.maxTextChars > 0 ? config.maxTextChars : 2500,
   }
-  // `perfil-propio` deja userDataDir sin definir: cdp.js crea uno temporal y lo
-  // borra al cerrar. `perfil-real` apunta al perfil de siempre.
-  return mode === 'perfil-real'
+  // `own-profile` leaves userDataDir unset: cdp.js creates a temporary profile and
+  // removes it on close. `real-profile` points at the everyday profile.
+  return mode === 'real-profile'
     ? { ...base, userDataDir: config.browserProfileDir ?? DEFAULT_USER_DATA_DIR, mode }
     : { ...base, mode }
 }
 
-/** Etiquetas y roles que cuentan como interactivos. */
+/** Tags and roles that count as interactive. */
 const INTERACTIVE_SELECTOR = [
   'a[href]',
   'button',
@@ -118,15 +141,15 @@ const INTERACTIVE_SELECTOR = [
 ].join(', ')
 
 /**
- * Extrae el estado legible de la pagina: elementos interactivos indexados, texto
+ * Extracts the readable state of the page: indexed interactive elements, visible
  * visible y avisos de estado.
  *
- * El indice es la unidad de trabajo del modelo: pide `snapshot`, lee `e12`, y
- * luego actua sobre `e12` sin tener que inventar un selector ni una coordenada.
+ * The index is the model's unit of work: it asks for `snapshot`, reads `e12`, and
+ * then acts on `e12` without having to invent a selector or a coordinate.
  *
- * @param maxElements - cuantos elementos devolver como maximo.
- * @param maxTextChars - cuantos caracteres de texto visible incluir.
- * @returns el estado de la pagina.
+ * @param maxElements - how many elements to return at most.
+ * @param maxTextChars - how many visible text characters to include.
+ * @returns the page state.
  */
 export function snapshotExpression(maxElements, maxTextChars) {
   return `(() => {
@@ -184,7 +207,7 @@ export function snapshotExpression(maxElements, maxTextChars) {
   const activeRef = active ? index.get(active) ?? null : null
   const root = document.body || document.documentElement
   const bodyText = (root ? root.innerText : '').replace(/[ \\t]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').trim()
-  // La pagina puede estar a medio cargar: sin <html> no hay scroll que medir.
+  // The page may be half loaded: with no <html> there is no scroll to measure.
   const scrolled = document.scrollingElement || document.documentElement
   return {
     url: location.href,
@@ -205,12 +228,12 @@ export function snapshotExpression(maxElements, maxTextChars) {
 }
 
 /**
- * Resuelve un elemento por referencia de snapshot o por selector CSS y lo trae a
- * la vista.
+ * Resolves an element by snapshot reference or CSS selector and brings it into
+ * view.
  *
- * @param ref - referencia tipo `e12` del ultimo snapshot.
- * @param selector - selector CSS, alternativa a la referencia.
- * @returns la posicion del elemento y como se resolvio.
+ * @param ref - `e12`-style reference from the last snapshot.
+ * @param selector - CSS selector, an alternative to the reference.
+ * @returns the element position and how it was resolved.
  */
 export function resolveExpression(ref, selector) {
   const byRef = ref === undefined ? 'null' : JSON.stringify(ref)
@@ -222,19 +245,19 @@ export function resolveExpression(ref, selector) {
   let how = null
   if (ref) {
     const index = window.__dshElements
-    if (!index) return { error: 'no hay snapshot en esta pagina; llama a browser snapshot primero' }
+    if (!index) return { error: 'there is no snapshot on this page; call browser snapshot first' }
     for (const [node, id] of index) if (id === ref) { el = node; how = 'ref'; break }
-    if (!el) return { error: 'la referencia ' + ref + ' ya no existe: la pagina cambio. Toma un snapshot nuevo' }
+    if (!el) return { error: 'reference ' + ref + ' no longer exists: the page changed. Take a new snapshot' }
   } else if (selector) {
     el = document.querySelector(selector)
-    if (!el) return { error: 'ningun elemento coincide con el selector ' + selector }
+    if (!el) return { error: 'no element matches the selector ' + selector }
     how = 'selector'
   } else {
-    return { error: 'necesito ref o selector' }
+    return { error: 'I need a ref or a selector' }
   }
   el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' })
   const rect = el.getBoundingClientRect()
-  if (rect.width < 1 || rect.height < 1) return { error: 'el elemento no tiene area visible' }
+  if (rect.width < 1 || rect.height < 1) return { error: 'the element has no visible area' }
   return {
     how,
     tag: el.tagName.toLowerCase(),
@@ -247,27 +270,27 @@ export function resolveExpression(ref, selector) {
 })()`
 }
 
-/** La sesion de navegador vive a nivel del plugin: se comparte entre llamadas. */
+/** The browser session lives at plugin level: it is shared across calls. */
 export class BrowserService {
   /**
-   * @param config - configuracion resuelta del plugin.
+   * @param config - resolved plugin configuration.
    */
   constructor(config) {
     this.config = config
     this.connection = null
     this.activeMode = null
-    /** Referencias resueltas por accion, para que un clic sea deterministico. */
+    /** References resolved per action, so a click is deterministic. */
     this.stash = new Map()
   }
 
   /**
-   * Conecta (o lanza) el navegador segun la via elegida.
+   * Connects (or launches) the browser for the chosen mode.
    *
-   * Si la via cambio respecto a la conexion viva, la anterior se cierra: no se
-   * reutiliza un navegador abierto con otro perfil, porque eso mezclaria
-   * compartimentos que el usuario separo a proposito.
+   * If the mode changed since the live connection, the previous one is closed: a
+   * browser opened with another profile is never reused, because that would mix
+   * compartments the user separated on purpose.
    *
-   * @param declaredMode - via pedida en esta llamada, o undefined para usar la configurada.
+   * @param declaredMode - mode requested in this call, or undefined to use the configured one.
    * @returns informacion de la conexion.
    */
   async connect(declaredMode) {
@@ -286,9 +309,9 @@ export class BrowserService {
   }
 
   /**
-   * Ejecuta una expresion en la pagina, reenganchandose si la pestana cambio.
+   * Runs an expression in the page, re-attaching if the tab changed.
    * @param expression - expresion JavaScript.
-   * @param declaredMode - via pedida en esta llamada.
+   * @param declaredMode - mode requested in this call.
    * @returns su valor.
    */
   async evaluate(expression, declaredMode) {
@@ -298,36 +321,36 @@ export class BrowserService {
   }
 
   /**
-   * Toma un snapshot de la pagina actual.
-   * @param declaredMode - via pedida en esta llamada.
-   * @returns estado legible de la pagina.
+   * Takes a snapshot of the current page.
+   * @param declaredMode - mode requested in this call.
+   * @returns the readable page state.
    */
   async snapshot(declaredMode) {
     const raw = await this.evaluate(snapshotExpression(this.config.maxElements, this.config.maxTextChars), declaredMode)
-    if (raw === undefined || raw === null) throw new Error('la pagina no devolvio estado')
+    if (raw === undefined || raw === null) throw new Error('the page returned no state')
     return raw
   }
 
   /**
-   * Resuelve una referencia o selector a una posicion en pantalla.
-   * @param ref - referencia del snapshot.
+   * Resolves a reference or selector into a screen position.
+   * @param ref - snapshot reference.
    * @param selector - selector CSS.
-   * @param declaredMode - via pedida en esta llamada.
-   * @returns posicion y datos del elemento.
+   * @param declaredMode - mode requested in this call.
+   * @returns position and element data.
    */
   async resolve(ref, selector, declaredMode) {
     const found = await this.evaluate(resolveExpression(ref, selector), declaredMode)
     if (found?.error !== undefined) throw new Error(found.error)
-    if (found === undefined || found === null) throw new Error('no pude resolver el elemento')
+    if (found === undefined || found === null) throw new Error('could not resolve the element')
     return found
   }
 
   /**
-   * Hace clic con el raton del navegador en una posicion de la pagina.
+   * Clicks with the browser's own mouse at a position in the page.
    * @param x - coordenada X en pixeles CSS.
    * @param y - coordenada Y en pixeles CSS.
-   * @param button - boton del raton.
-   * @param clickCount - 1 para clic simple, 2 para doble.
+   * @param button - mouse button.
+   * @param clickCount - 1 for a single click, 2 for a double.
    */
   async clickAt(x, y, button = 'left', clickCount = 1) {
     const session = this.connection.session
@@ -338,31 +361,31 @@ export class BrowserService {
   }
 
   /**
-   * Escribe texto en el elemento enfocado usando la entrada del navegador, que
-   * respeta el framework de la pagina.
-   * @param text - texto a escribir.
+   * Types text into the focused element using the browser's own input, which
+   * respects the page's framework.
+   * @param text - text to type.
    */
   async insertText(text) {
     await this.connection.session.send('Input.insertText', { text })
   }
 
   /**
-   * Pulsa una tecla del navegador.
-   * @param key - nombre de la tecla.
+   * Presses a browser key.
+   * @param key - key name.
    * @param modifiers - modificadores activos (alt=1, ctrl=2, meta=4, shift=8).
    */
   async pressKey(key, modifiers = 0) {
     const session = this.connection.session
     const code = KEY_CODES[key]
-    if (code === undefined) throw new Error(`tecla no soportada por el navegador: ${key}`)
+    if (code === undefined) throw new Error(`key not supported by the browser: ${key}`)
     await session.send('Input.dispatchKeyEvent', { type: 'keyDown', key: code.key, code: code.code, windowsVirtualKeyCode: code.vk, nativeVirtualKeyCode: code.vk, modifiers })
     await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: code.key, code: code.code, windowsVirtualKeyCode: code.vk, nativeVirtualKeyCode: code.vk, modifiers })
   }
 
   /**
-   * Captura la pestana como PNG.
-   * @param fullPage - capturar la pagina entera o solo la vista.
-   * @returns los bytes de la imagen.
+   * Captures the tab as a PNG.
+   * @param fullPage - capture the whole page or just the viewport.
+   * @returns the image bytes.
    */
   async screenshot(declaredMode, fullPage = false) {
     await this.connect(declaredMode)
@@ -375,10 +398,10 @@ export class BrowserService {
   }
 
   /**
-   * Navega a una direccion, esperando a que la carga se asiente.
+   * Navigates to a URL, waiting for the load to settle.
    * @param url - direccion destino.
-   * @param timeoutMs - cuanto esperar a la carga.
-   * @returns el estado de la pagina tras cargar.
+   * @param timeoutMs - how long to wait for the load.
+   * @returns the page state after loading.
    */
   async navigate(url, declaredMode, timeoutMs = 20000) {
     await this.connect(declaredMode)
@@ -407,9 +430,9 @@ export class BrowserService {
   }
 
   /**
-   * Espera a que aparezca un texto o un selector.
-   * @param options - texto, selector y limite.
-   * @returns si aparecio y cuanto tardo.
+   * Waits for a text or a selector to appear.
+   * @param options - text, selector and limit.
+   * @returns whether it appeared, and how long it took.
    */
   async waitFor(options, declaredMode) {
     const started = Date.now()
@@ -425,7 +448,7 @@ export class BrowserService {
     return { found: false, waitedMs: Date.now() - started }
   }
 
-  /** Cierra la conexion y el navegador que hayamos lanzado. */
+  /** Closes the connection and the browser we launched. */
   stop() {
     this.stash.clear()
     this.connection?.stop()
@@ -435,7 +458,7 @@ export class BrowserService {
 }
 
 /**
- * Teclas que la herramienta de navegador sabe pulsar, con su codigo virtual de
+ * Keys the browser tool can press, with their Windows virtual code and
  * Windows y su `code` de DOM.
  */
 const KEY_CODES = {

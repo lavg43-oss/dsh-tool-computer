@@ -123,18 +123,41 @@ async function main() {
 try {
   await main()
 } finally {
-  // Cierre garantizado: los desmontadores del plugin cierran el navegador y su
-  // perfil temporal. Sin esto quedan procesos huerfanos, que es justo lo que
-  // paso en la primera version de esta prueba.
+  // Guaranteed teardown: the plugin's disposers close the browser and its
+  // temporary profile. Without this, orphan processes survive — which is exactly
+  // what the first version of this test shipped.
   for (const disposer of disposers) disposer()
-  // Chrome tarda unos segundos en soltar del todo sus procesos auxiliares y el
-  // perfil. Medir demasiado pronto da falsos positivos: en la primera version de
-  // esta comprobacion se contaron tres procesos que se cerraron solos despues.
-  console.log('\nlimpieza: desmontadores ejecutados; esperando a que el navegador suelte todo')
-  await new Promise((resolve) => setTimeout(resolve, 8000))
-  const leftover = countChromeWithTempProfile()
-  console.log(leftover === 0 ? 'limpieza verificada: 0 procesos y 0 perfiles temporales' : `ATENCION: quedan ${leftover} procesos del navegador`)
-  process.exit(leftover === 0 ? 0 : 1)
+  console.log('\ncleanup: disposers ran; waiting for the browser to release everything')
+  // Chrome's helper processes and the profile are released a few seconds after
+  // the tree is killed, so this polls instead of sampling once: measuring too
+  // early produced false alarms about leftovers that were only slow exits.
+  const deadline = Date.now() + 30000
+  let leftover = -1
+  while (Date.now() < deadline) {
+    leftover = countChromeWithTempProfile()
+    if (leftover === 0) break
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+  }
+  const profiles = countTempProfiles()
+  const clean = leftover === 0 && profiles === 0
+  console.log(clean
+    ? 'cleanup verified: 0 browser processes and 0 temporary profiles'
+    : `WARNING: ${leftover} browser processes and ${profiles} temporary profiles left behind`)
+  process.exit(clean ? 0 : 1)
+}
+
+/**
+ * Counts temporary Chrome profiles left in the temp directory.
+ * @returns how many remain.
+ */
+function countTempProfiles() {
+  const result = spawnSync('powershell', [
+    '-NoProfile',
+    '-Command',
+    '@(Get-ChildItem $env:TEMP -Directory -Filter "dsh-cdp-*" -ErrorAction SilentlyContinue).Count',
+  ], { encoding: 'utf8', timeout: 30000 })
+  const count = Number.parseInt((result.stdout ?? '').trim(), 10)
+  return Number.isFinite(count) ? count : -1
 }
 
 /**

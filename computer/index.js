@@ -1,15 +1,16 @@
 /**
- * dsh-tool-computer — computer use para DSH en Windows.
+ * dsh-tool-computer - computer use for DSH on Windows.
  *
- * Registra dos herramientas:
+ * It registers two tools:
  *
- * - `computer`: control del escritorio con vision real (bloque `image` sobre
- *   `ctx.attachments`), clic, teclado, scroll y ventanas. El trabajo nativo lo
- *   hace `lib/computer.ps1`, que recibe un JSON por stdin y devuelve un JSON por
- *   stdout, en modo servidor persistente o en proceso unico.
- * - `browser`: control de Chrome o Edge por el protocolo de depuracion, sin
- *   dependencias. Lee la estructura de la pagina y actua por referencia en vez
- *   de estimar coordenadas: es la via rapida y determinista para trabajo web.
+ * - `computer`: controls the Windows desktop with real vision (an `image` block
+ *   over `ctx.attachments`), plus clicking, typing, scrolling and windows. The
+ *   native work is done by `lib/computer.ps1`, which reads one JSON request from
+ *   stdin and writes one JSON response to stdout, either as a persistent server
+ *   or as a single process.
+ * - `browser`: drives Chrome or Edge over the DevTools Protocol, with no
+ *   dependencies. It reads the page structure and acts by reference instead of
+ *   estimating coordinates: the fast, deterministic path for web work.
  *
  * @module dsh-tool-computer
  */
@@ -19,13 +20,13 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BROWSER_ACTIONS, browserDescription, createBrowserService } from './lib/browser-tool.js'
 
-/** Identidad estable de la fila del loader. */
+/** Stable loader row identity. */
 export const name = 'tool-computer'
 
 /**
- * Esquema de configuracion en la forma que Cordis consume: un objeto con
- * `~standard.validate`. Se escribe a mano para que el plugin no importe nada
- * de `@deepseek-ai/*` (el perfil no tiene esos paquetes en su node_modules).
+ * Configuration schema in the shape Cordis consumes: an object with
+ * `~standard.validate`. Written by hand so the plugin imports nothing from
+ * `@deepseek-ai/*` (a profile has none of those packages in its node_modules).
  */
 function integerField(fallback, min, max) {
   return {
@@ -36,7 +37,7 @@ function integerField(fallback, min, max) {
       return value
     },
     check: (value) => Number.isSafeInteger(value) && value >= min && value <= max,
-    describe: `entero entre ${min} y ${max}`,
+    describe: `an integer between ${min} and ${max}`,
   }
 }
 
@@ -47,13 +48,13 @@ const CONFIG_FIELDS = {
   timeoutMs: integerField(30000, 1000, 600000),
 }
 
-/** Acciones validas, duplicadas aqui para que el esquema de config las conozca sin depender de ACTION_SPECS. */
+/** Valid actions, duplicated here so the configuration schema knows them without depending on ACTION_SPECS. */
 const CONFIG_ACTIONS = [
   'screenshot', 'click', 'double_click', 'right_click', 'move', 'drag', 'scroll',
   'type', 'key', 'keys', 'cursor', 'windows', 'focus_window', 'close_window', 'start_app', 'wait',
 ]
 
-/** Config validada del plugin, mas los campos que no necesitan rango. */
+/** Validated plugin configuration, plus the fields that need no range. */
 export const Config = {
   '~standard': {
     version: 1,
@@ -68,41 +69,41 @@ export const Config = {
           || key === 'browserMode'
           || key === 'browserProfileDir'
           || Object.hasOwn(CONFIG_FIELDS, key)
-        if (!known) issues.push({ message: `propiedad de configuracion desconocida: ${key}`, path: [key] })
+        if (!known) issues.push({ message: `unknown configuration property: ${key}`, path: [key] })
       }
       if (Object.hasOwn(source, 'persistentShell') && typeof source.persistentShell !== 'boolean') {
-        issues.push({ message: 'persistentShell debe ser booleano', path: ['persistentShell'] })
+        issues.push({ message: 'persistentShell must be a boolean', path: ['persistentShell'] })
       }
       if (Object.hasOwn(source, 'browserMode') && !['perfil-propio', 'perfil-real', 'sin-navegador'].includes(source.browserMode)) {
-        issues.push({ message: 'browserMode debe ser "perfil-propio", "perfil-real" o "sin-navegador"', path: ['browserMode'] })
+        issues.push({ message: 'browserMode must be "own-profile", "real-profile" or "no-browser" (Spanish aliases perfil-propio, perfil-real, sin-navegador also accepted)', path: ['browserMode'] })
       }
       if (Object.hasOwn(source, 'browserProfileDir') && source.browserProfileDir !== null && typeof source.browserProfileDir !== 'string') {
-        issues.push({ message: 'browserProfileDir debe ser una ruta o null', path: ['browserProfileDir'] })
+        issues.push({ message: 'browserProfileDir must be a path or null', path: ['browserProfileDir'] })
       }
       if (Object.hasOwn(source, 'captureAfterActions') && typeof source.captureAfterActions !== 'boolean') {
-        issues.push({ message: 'captureAfterActions debe ser booleano', path: ['captureAfterActions'] })
+        issues.push({ message: 'captureAfterActions must be a boolean', path: ['captureAfterActions'] })
       }
       if (Object.hasOwn(source, 'requireApprovalFor') && source.requireApprovalFor !== undefined && source.requireApprovalFor !== null) {
         if (!Array.isArray(source.requireApprovalFor)) {
-          issues.push({ message: 'requireApprovalFor debe ser una lista de acciones', path: ['requireApprovalFor'] })
+          issues.push({ message: 'requireApprovalFor must be a list of actions', path: ['requireApprovalFor'] })
         } else {
           for (const [index, entry] of source.requireApprovalFor.entries()) {
             if (typeof entry !== 'string' || !CONFIG_ACTIONS.includes(entry)) {
-              issues.push({ message: `requireApprovalFor[${index}] no es una accion valida: ${JSON.stringify(entry)}`, path: ['requireApprovalFor', index] })
+              issues.push({ message: `requireApprovalFor[${index}] is not a valid action: ${JSON.stringify(entry)}`, path: ['requireApprovalFor', index] })
             }
           }
         }
       }
       for (const [key, field] of Object.entries(CONFIG_FIELDS)) {
         if (!Object.hasOwn(source, key) || source[key] === undefined || source[key] === null) continue
-        if (!field.check(source[key])) issues.push({ message: `${key} debe ser un ${field.describe}`, path: [key] })
+        if (!field.check(source[key])) issues.push({ message: `${key} must be ${field.describe}`, path: [key] })
       }
       if (issues.length > 0) return { issues }
       const value = {
         captureAfterActions: source.captureAfterActions === true,
         persistentShell: source.persistentShell !== false,
         requireApprovalFor: Array.isArray(source.requireApprovalFor) ? [...source.requireApprovalFor] : [],
-        // Sin valor, la eleccion se le pregunta al usuario en cada tarea.
+        // With no value, the choice is asked of the user on every task.
         browserMode: ['perfil-propio', 'perfil-real', 'sin-navegador'].includes(source.browserMode) ? source.browserMode : null,
         browserProfileDir: typeof source.browserProfileDir === 'string' && source.browserProfileDir !== '' ? source.browserProfileDir : null,
       }
@@ -112,41 +113,41 @@ export const Config = {
   },
 }
 
-/** Servicios requeridos: el registro de herramientas, el almacen de adjuntos y las rutas de modelo. */
+/** Required services: the tool registry, the attachment store and model routes. */
 export const inject = ['tools', 'attachments', 'llm']
 
 /**
- * Pide autorizacion al usuario para una accion, si el despliegue la exige.
+ * Asks the user to authorise an action, when the deployment requires it.
  *
- * Se consume de forma oportunista, como hace el resto del harness: un
- * despliegue sin servicio de aprobacion no concede nada, y el fallo es cerrado.
+ * Consumed opportunistically, the way the rest of the harness does: a deployment
+ * with no approval service grants nothing, and the failure is closed.
  *
- * @param ctx - contexto del plugin.
- * @param exec - contexto de ejecucion.
- * @param action - accion que necesita permiso.
+ * @param ctx - plugin context.
+ * @param exec - execution context.
+ * @param action - action that needs permission.
  */
 async function assertApproved(ctx, exec, action) {
   const approval = ctx.get('approval')
   if (approval === undefined) {
-    throw new Error(`computer(${action}): esta accion exige autorizacion (config requireApprovalFor) y este despliegue no tiene servicio de aprobacion; quita "${action}" de requireApprovalFor o monta el servicio`)
+    throw new Error(`computer(${action}): this action requires authorisation (requireApprovalFor config) and this deployment has no approval service; remove "${action}" from requireApprovalFor or mount the service`)
   }
   const outcome = await approval.request({
     agent: exec.agent,
     toolName: 'computer',
     callId: exec.callId,
     reason: `computer use: ${action}`,
-    displayReason: `Computer use quiere ejecutar "${action}" en el escritorio`,
+    displayReason: `Computer use wants to run "${action}" on the desktop`,
     signal: exec.signal,
   })
   if (outcome !== 'allowed-once') {
-    throw new Error(`computer(${action}): la accion no fue autorizada (${outcome}); no se ejecuto nada`)
+    throw new Error(`computer(${action}): the action was not authorised (${outcome}); nothing ran`)
   }
 }
 
 const here = dirname(fileURLToPath(import.meta.url))
 const scriptPath = join(here, 'lib', 'computer.ps1')
 
-/** Nombres de tecla aceptados, para que el modelo no adivine. */
+/** Accepted key names, so the model does not have to guess. */
 const KEY_NAMES = [
   'enter', 'return', 'tab', 'esc', 'escape', 'space', 'backspace', 'delete', 'del', 'insert',
   'home', 'end', 'pageup', 'pagedown', 'left', 'right', 'up', 'down', 'ctrl', 'control', 'shift',
@@ -156,119 +157,119 @@ const KEY_NAMES = [
   'semicolon', 'quote', 'lshift', 'rshift', 'lctrl', 'rctrl', 'lalt', 'ralt',
 ].join(', ')
 
-/** Propiedades compartidas por las acciones que apuntan a un pixel. */
+/** Fields shared by the actions that target a pixel. */
 const POINT_FIELDS = {
   x: {
     type: 'integer',
     required: true,
-    description: 'Coordenada X, redondeada a un entero.',
+    description: 'X coordinate, rounded to an integer.',
   },
   y: {
     type: 'integer',
     required: true,
-    description: 'Coordenada Y, redondeada a un entero.',
+    description: 'Y coordinate, rounded to an integer.',
   },
   space: {
     type: 'string',
     enum: ['screen', 'image'],
-    description: "Marco de referencia de x/y. 'screen' = pixeles absolutos del escritorio virtual. 'image' = pixeles de la captura que acabas de ver; es el valor por defecto, porque es donde mediste.",
+    description: "Reference frame for x/y. 'screen' = absolute virtual-desktop pixels. 'image' = pixels of the capture you just looked at; this is the default, because that is where you measured.",
   },
   frame: {
     type: 'integer',
-    description: 'Numero de frame devuelto por la captura, cuando la accion usa coordenadas de imagen. Por defecto, la captura mas reciente.',
+    description: 'Frame number returned by the capture, when the action uses image coordinates. Defaults to the most recent capture.',
   },
 }
 
 const ACTION_SPECS = {
   screenshot: {
-    summary: 'Captura la pantalla y devuelve la imagen para que la veas.',
+    summary: 'Captures the screen and returns the image so you can see it.',
     parameters: {
-      maxWidth: { type: 'integer', description: 'Ancho maximo del PNG capturado. Por defecto, la configuracion del plugin.' },
-      maxHeight: { type: 'integer', description: 'Alto maximo del PNG capturado. Por defecto, la configuracion del plugin.' },
+      maxWidth: { type: 'integer', description: 'Maximum width of the captured PNG. Defaults to the plugin configuration.' },
+      maxHeight: { type: 'integer', description: 'Maximum height of the captured PNG. Defaults to the plugin configuration.' },
     },
     required: [],
   },
-  click: { summary: 'Mueve el cursor a x,y y hace clic izquierdo.', parameters: POINT_FIELDS, required: ['x', 'y'] },
-  double_click: { summary: 'Doble clic izquierdo en x,y. Usalo para abrir iconos o archivos.', parameters: POINT_FIELDS, required: ['x', 'y'] },
-  right_click: { summary: 'Clic derecho en x,y, para menus contextuales.', parameters: POINT_FIELDS, required: ['x', 'y'] },
-  move: { summary: 'Solo mueve el cursor a x,y, sin hacer clic. Sirve para provocar hover.', parameters: POINT_FIELDS, required: ['x', 'y'] },
+  click: { summary: 'Moves the cursor to x,y and left-clicks.', parameters: POINT_FIELDS, required: ['x', 'y'] },
+  double_click: { summary: 'Double left-click at x,y. Use it to open icons or files.', parameters: POINT_FIELDS, required: ['x', 'y'] },
+  right_click: { summary: 'Right-click at x,y, for context menus.', parameters: POINT_FIELDS, required: ['x', 'y'] },
+  move: { summary: 'Only moves the cursor to x,y, without clicking. Useful to trigger hover.', parameters: POINT_FIELDS, required: ['x', 'y'] },
   drag: {
-    summary: 'Arrastra con el boton izquierdo desde x,y hasta x2,y2.',
+    summary: 'Drags with the left button from x,y to x2,y2.',
     parameters: {
       ...POINT_FIELDS,
-      x2: { type: 'integer', required: true, description: 'Coordenada X del destino.' },
-      y2: { type: 'integer', required: true, description: 'Coordenada Y del destino.' },
+      x2: { type: 'integer', required: true, description: 'Destination X coordinate.' },
+      y2: { type: 'integer', required: true, description: 'Destination Y coordinate.' },
     },
     required: ['x', 'y', 'x2', 'y2'],
   },
   scroll: {
-    summary: 'Rueda del raton en la posicion actual del cursor.',
+    summary: 'Mouse wheel at the current cursor position.',
     parameters: {
-      amount: { type: 'integer', description: 'Positivo hacia arriba/izquierda, negativo hacia abajo/derecha. Por defecto 3.' },
-      horizontal: { type: 'boolean', description: 'true para desplazamiento horizontal.' },
+      amount: { type: 'integer', description: 'Positive scrolls up/left, negative down/right. Defaults to 3.' },
+      horizontal: { type: 'boolean', description: 'true for horizontal scrolling.' },
     },
     required: [],
   },
   type: {
-    summary: 'Escribe texto en la ventana con foco, caracter por caracter. No pulsa Enter.',
+    summary: 'Types text into the focused window, character by character. Does not press Enter.',
     parameters: {
-      text: { type: 'string', required: true, description: 'Texto literal a escribir.' },
-      delayMs: { type: 'integer', description: 'Pausa entre caracteres en milisegundos. Por defecto, la configuracion del plugin.' },
+      text: { type: 'string', required: true, description: 'Literal text to type.' },
+      delayMs: { type: 'integer', description: 'Pause between characters, in milliseconds. Defaults to the plugin configuration.' },
     },
     required: ['text'],
   },
   key: {
-    summary: 'Pulsa una sola tecla.',
+    summary: 'Presses a single key.',
     parameters: {
-      key: { type: 'string', required: true, description: `Nombre de la tecla, sin distinguir mayusculas: ${KEY_NAMES}.` },
+      key: { type: 'string', required: true, description: `Key name, case-insensitive: ${KEY_NAMES}.` },
     },
     required: ['key'],
   },
   keys: {
-    summary: 'Pulsa una combinacion, manteniendo todas las teclas hasta el final. Usalo para atajos.',
+    summary: 'Presses a combination, holding every key until the end. Use it for shortcuts.',
     parameters: {
       keys: {
         type: 'array',
         required: true,
-        description: "Teclas en orden, por ejemplo ['ctrl','shift','s'] o ['alt','tab'].",
+        description: "Keys in order, for example ['ctrl','shift','s'] or ['alt','tab'].",
         items: { type: 'string' },
       },
     },
     required: ['keys'],
   },
-  cursor: { summary: 'Donde esta el cursor ahora y que ventana tiene el foco.', parameters: {}, required: [] },
-  windows: { summary: 'Enumera las ventanas con titulo, proceso, PID, rectangulo y cual tiene el foco.', parameters: {}, required: [] },
+  cursor: { summary: 'Where the cursor is now, and which window has focus.', parameters: {}, required: [] },
+  windows: { summary: 'Lists windows with title, process, PID, rectangle and which one has focus.', parameters: {}, required: [] },
   focus_window: {
-    summary: 'Trae una ventana al frente y le da el foco.',
+    summary: 'Brings a window to the front and gives it focus.',
     parameters: {
-      title: { type: 'string', description: 'Fragmento del titulo, sin distinguir mayusculas. Obligatorio si no pasas handle.' },
-      handle: { type: 'integer', description: 'Handle exacto devuelto por windows. Tiene prioridad sobre title.' },
+      title: { type: 'string', description: 'Title fragment, case-insensitive. Required when handle is not given.' },
+      handle: { type: 'integer', description: 'Exact handle returned by windows. Takes precedence over title.' },
     },
     required: [],
   },
   wait: {
-    summary: 'Espera a que la interfaz se asiente.',
+    summary: 'Waits for the interface to settle.',
     parameters: {
-      ms: { type: 'integer', description: 'Milisegundos a esperar, maximo 30000. Por defecto 500.' },
+      ms: { type: 'integer', description: 'Milliseconds to wait, at most 30000. Defaults to 500.' },
     },
     required: [],
   },
   close_window: {
-    summary: 'Pide cerrar una ventana (envia WM_CLOSE, igual que el boton de cerrar). Usalo para descartar dialogos.',
+    summary: 'Asks a window to close (sends WM_CLOSE, like the close button). Use it to dismiss dialogs.',
     parameters: {
-      title: { type: 'string', description: 'Fragmento del titulo. Obligatorio si no pasas handle.' },
+      title: { type: 'string', description: 'Title fragment. Required when handle is not given.' },
       handle: { type: 'integer', description: 'Handle exacto devuelto por windows. Tiene prioridad sobre title.' },
     },
     required: [],
   },
   start_app: {
-    summary: 'Abre una aplicacion de la lista permitida y devuelve su ventana, handle y PID.',
+    summary: 'Opens an application from the allowed list and returns its window, handle and PID.',
     parameters: {
       app: {
         type: 'string',
         required: true,
         enum: ['notepad', 'calculator', 'paint', 'explorer', 'cmd', 'powershell'],
-        description: 'Aplicacion a abrir. Lista cerrada: no acepta rutas ni ejecutables arbitrarios.',
+        description: 'Application to open. Closed list: it does not accept paths or arbitrary executables.',
       },
     },
     required: ['app'],
@@ -277,46 +278,46 @@ const ACTION_SPECS = {
 
 const ACTIONS = Object.keys(ACTION_SPECS)
 
-/** Palabras que revelan una sola tecla frente a una combinacion. */
+/** Whether the given keys form a combination rather than a single key. */
 function isChord(keys) {
   return Array.isArray(keys) && keys.length > 1
 }
 
 /**
- * Construye la descripcion del despachador a partir de las acciones declaradas.
+ * Builds the dispatcher description from the declared actions.
  * @returns descripcion orientada al modelo.
  */
 function buildDescription() {
   const lines = Object.entries(ACTION_SPECS).map(([action, spec]) => `- ${action}: ${spec.summary}`)
   return [
-    'Controla el escritorio de Windows: captura la pantalla, mueve el raton, hace clic, escribe y pulsa teclas.',
-    'El parametro `action` elige el comportamiento; los demas parametros son los de esa accion.',
-    'Flujo normal: `screenshot` (veras la imagen adjunta), mide en ella y luego `click` con space="image"; repite tras cada paso que cambie la pantalla.',
-    'Empieza por `windows` o `focus_window` cuando la ventana objetivo no tenga el foco: escribir o teclear va siempre a la ventana enfocada.',
-    '`click`, `type` y `key` actuan sobre lo que este en ese momento bajo el cursor o con foco; no adivines coordenadas sin una captura reciente.',
+    'Controls the Windows desktop: captures the screen, moves the mouse, clicks, types and presses keys.',
+    'The `action` parameter picks the behaviour; the remaining parameters are that action\'s own.',
+    'Normal flow: `screenshot` (you will see the image attached), measure on it and then `click` with space="image"; repeat after every step that changes the screen.',
+    'Start with `windows` or `focus_window` when the target window does not have focus: typing and key presses always go to the focused window.',
+    '`click`, `type` and `key` act on whatever is under the cursor or focused at that moment; do not guess coordinates without a recent capture.',
     'Acciones:',
     ...lines,
   ].join('\n')
 }
 
 /**
- * Carga la ruta del ejecutable de PowerShell.
+ * Resolves the PowerShell executable path.
  *
- * Prueba candidatos en orden y se queda con el primero que exista, porque la
- * instalacion varia entre equipos: Windows PowerShell 5.1 vive en System32, y
- * PowerShell 7 puede estar en Program Files, en la Microsoft Store (WindowsApps)
- * o solo en el PATH. `DSH_PWSH` manda sobre todo lo demas.
+ * Tries candidates in order and keeps the first that exists, because the install
+ * varies between machines: Windows PowerShell 5.1 lives in System32, and
+ * PowerShell 7 may be in Program Files, in the Microsoft Store (WindowsApps) or
+ * only on the PATH. `DSH_PWSH` overrides everything else.
  *
  * El orden prefiere Windows PowerShell 5.1 porque, medido en un equipo real, un
- * proceso nuevo tarda 4.5-6.6 s con el frente a 9.8-18 s con el `pwsh` de la
- * Store. Para forzar otro interprete, basta `DSH_PWSH`.
+ * fresh process takes 4.5-6.6 s with it against 9.8-18 s with the Store `pwsh`.
+ * To force another interpreter, set `DSH_PWSH`.
  *
- * @returns ruta absoluta de un interprete, o el nombre suelto para que lo busque el sistema.
+ * @returns an absolute interpreter path, or a bare name for the system to resolve.
  */
 function resolvePwsh() {
   if (process.env.DSH_PWSH !== undefined && process.env.DSH_PWSH.trim() !== '') return process.env.DSH_PWSH
   const candidates = [
-    // Windows PowerShell 5.1: viene con Windows y es el mas rapido aqui.
+    // Windows PowerShell 5.1: ships with Windows and is the fastest here.
     join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
     // PowerShell 7+, instalacion clasica y de la Store.
     join(process.env.ProgramFiles ?? 'C:\\Program Files', 'PowerShell', '7', 'pwsh.exe'),
@@ -335,21 +336,21 @@ function resolvePwsh() {
 }
 
 /**
- * Cliente del servidor persistente de PowerShell.
+ * Client for the persistent PowerShell server.
  *
- * Arrancar PowerShell y compilar la superficie nativa cuesta entre 8 y 22
- * segundos; una accion posterior sobre un proceso ya vivo cuesta milisegundos.
- * Este cliente mantiene un unico proceso en modo `-Server`, le escribe una
- * peticion JSON por linea y resuelve con la linea de respuesta.
+ * Starting PowerShell and compiling the native surface costs 8 to 22 seconds; a
+ * later action against an already-live process costs milliseconds. This client
+ * keeps a single process in `-Server` mode, writes one JSON request per line and
+ * resolves with the response line.
  *
- * Es tolerante a fallos por diseno: si el servidor no arranca, se cae, o no
- * responde a tiempo, la llamada cae al modo de proceso unico en vez de fallar.
+ * It is failure-tolerant by design: if the server does not start, dies, or stops
+ * answering in time, the call falls back to single-process mode instead of failing.
  */
 class ComputerServer {
   /**
-   * @param scriptPath - ruta absoluta del runner.
-   * @param executable - interprete de PowerShell.
-   * @param childTimeoutMs - limite por peticion.
+   * @param scriptPath - absolute path of the runner.
+   * @param executable - PowerShell interpreter.
+   * @param childTimeoutMs - per-request limit.
    */
   constructor(scriptPath, executable, childTimeoutMs) {
     this.scriptPath = scriptPath
@@ -364,7 +365,7 @@ class ComputerServer {
     this.watchdog = null
   }
 
-  /** Arranca el servidor si no hay uno vivo. */
+  /** Starts the server when none is alive. */
   ensureStarted() {
     if (this.child !== null && this.child.exitCode === null && !this.child.killed) return
     this.generation++
@@ -399,16 +400,16 @@ class ComputerServer {
       const waiting = this.pending
       this.pending = null
       this.child = null
-      if (waiting !== null) waiting.reject(new Error(`el servidor de computer use termino (${waiting.note})`))
+      if (waiting !== null) waiting.reject(new Error(`the computer use server exited (${waiting.note})`))
     }
     child.on('exit', onGone)
     child.on('error', onGone)
   }
 
   /**
-   * Entrega una linea de respuesta a quien espera.
-   * @param generation - generacion del servidor que respondio.
-   * @param line - linea JSON.
+   * Hands a response line to whoever is waiting.
+   * @param generation - generation of the server that answered.
+   * @param line - JSON line.
    */
   settle(generation, line) {
     if (generation !== this.generation) return
@@ -420,7 +421,7 @@ class ComputerServer {
     try {
       parsed = JSON.parse(line)
     } catch {
-      waiting.reject(new Error(`el servidor devolvio una linea que no es JSON: ${line.slice(0, 300)}`))
+      waiting.reject(new Error(`the server returned a line that is not JSON: ${line.slice(0, 300)}`))
       return
     }
     if (parsed !== null && typeof parsed === 'object' && parsed.ok === false && typeof parsed.error === 'string') {
@@ -431,26 +432,26 @@ class ComputerServer {
   }
 
   /**
-   * Envia una peticion y espera su respuesta.
-   * @param request - objeto de peticion.
-   * @param note - etiqueta para los mensajes de error.
-   * @returns la respuesta del runner.
+   * Sends a request and waits for its response.
+   * @param request - request object.
+   * @param note - label for error messages.
+   * @returns the runner response.
    */
   request(request, note) {
     this.ensureStarted()
     const generation = this.generation
     const child = this.child
-    if (child === null || child.stdin === null) throw new Error('el servidor de computer use no tiene stdin')
+    if (child === null || child.stdin === null) throw new Error('the computer use server has no stdin')
     this.lastUsedAt = Date.now()
     this.armWatchdog()
     return new Promise((resolve, reject) => {
       if (this.pending !== null) {
-        reject(new Error('el servidor de computer use ya tiene una peticion en curso'))
+        reject(new Error('the computer use server already has a request in flight'))
         return
       }
       const timer = setTimeout(() => {
         this.pending = null
-        reject(new Error(`el servidor no respondio en ${this.childTimeoutMs} ms (${note})${this.stderrTail === '' ? '' : `; stderr: ${this.stderrTail.slice(-400)}`}`))
+        reject(new Error(`the server did not answer within ${this.childTimeoutMs} ms (${note})${this.stderrTail === '' ? '' : `; stderr: ${this.stderrTail.slice(-400)}`}`))
         this.stop()
       }, this.childTimeoutMs)
       this.pending = { resolve, reject, timer, note }
@@ -460,12 +461,12 @@ class ComputerServer {
           clearTimeout(this.pending.timer)
           this.pending = null
         }
-        reject(new Error(`no pude escribirle al servidor: ${error.message}`))
+        reject(new Error(`could not write to the server: ${error.message}`))
       })
     })
   }
 
-  /** Cierra el servidor tras un rato sin uso, para no dejar un PowerShell vivo. */
+  /** Closes the server after a while idle, so no PowerShell is left running. */
   armWatchdog() {
     if (this.watchdog !== null) return
     this.watchdog = setInterval(() => {
@@ -476,7 +477,7 @@ class ComputerServer {
     if (typeof this.watchdog.unref === 'function') this.watchdog.unref()
   }
 
-  /** Detiene el servidor y deja el cliente listo para arrancar otro. */
+  /** Stops the server and leaves the client ready to start another one. */
   stop() {
     const child = this.child
     this.child = null
@@ -489,37 +490,37 @@ class ComputerServer {
     try {
       child.stdin?.end()
     } catch {
-      /* el flujo ya estaba cerrado */
+      /* the stream was already closed */
     }
     try {
       child.kill()
     } catch {
-      /* ya habia muerto */
+      /* it was already dead */
     }
   }
 }
 
-/** Sin uso durante este tiempo, el servidor se cierra solo. */
+/** After this long without use, the server closes itself. */
 const IDLE_SHUTDOWN_MS = 10 * 60_000
 
 /**
- * Ejecuta el runner en un proceso nuevo: el camino de respaldo del servidor.
+ * Runs the runner in a fresh process: the server's fallback path.
  *
- * Usa `spawnSync` a proposito: en este entorno `execFile` con el mismo script y
- * la misma entrada nunca liquida su callback (el hijo termina, el pipe no), y la
- * llamada se queda colgada indefinidamente. `spawnSync` devuelve siempre, con su
- * propio limite duro de tiempo.
+ * Uses `spawnSync` on purpose: in this environment `execFile` with the same script
+ * and the same input never settles its callback (the child exits, the pipe does
+ * not), and the call hangs forever. `spawnSync` always returns, with its own hard
+ * time limit.
  *
- * @param request - objeto de peticion serializado a stdin.
- * @param timeoutMs - limite para el proceso hijo.
- * @param signal - cancelacion de la llamada, comprobada antes de arrancar.
- * @returns el objeto JSON devuelto por el runner.
+ * @param request - request object serialized to stdin.
+ * @param timeoutMs - limit for the child process.
+ * @param signal - call cancellation, checked before starting.
+ * @returns the JSON object returned by the runner.
  */
 function runNativeOneShot(request, timeoutMs, signal) {
-  if (signal?.aborted === true) throw new Error('computer: la llamada se cancelo antes de arrancar el runner')
+  if (signal?.aborted === true) throw new Error('computer: the call was cancelled before starting the runner')
   const executable = resolvePwsh()
-  // El runner lee su peticion de stdin hasta el final: hay que darsela y cerrar
-  // el flujo, o se queda esperando.
+  // The runner reads its request from stdin to the end: give it one and close the
+  // stream, or it waits forever.
   const outcome = spawnSync(
     executable,
     ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
@@ -536,9 +537,9 @@ function runNativeOneShot(request, timeoutMs, signal) {
   const text = (outcome.stdout ?? '').trim()
   if (outcome.error !== undefined && outcome.error !== null && text === '') {
     if (outcome.error.code === 'ETIMEDOUT') {
-      throw new Error(`computer: el runner no respondio en ${timeoutMs} ms (${executable}); la accion quedo sin efecto`)
+      throw new Error(`computer: the runner did not answer within ${timeoutMs} ms (${executable}); the action had no effect`)
     }
-    throw new Error(`computer: no pude lanzar el runner (${executable}): ${outcome.error.message}`)
+    throw new Error(`computer: could not start the runner (${executable}): ${outcome.error.message}`)
   }
 
   let parsed
@@ -554,40 +555,40 @@ function runNativeOneShot(request, timeoutMs, signal) {
   if (parsed !== undefined && typeof parsed.error === 'string') throw new Error(parsed.error)
 
   const detail = (outcome.stderr ?? '').trim() || text || `termino con estado ${outcome.status ?? 'desconocido'}`
-  throw new Error(`computer: el runner no devolvio JSON: ${detail.slice(0, 2000)}`)
+  throw new Error(`computer: the runner did not return JSON: ${detail.slice(0, 2000)}`)
 }
 
 /**
- * Limite del proceso hijo, por debajo del limite de la herramienta para que un
- * runner atascado se rinda antes que el presupuesto de la llamada.
- * @param toolTimeoutMs - limite configurado de la herramienta.
- * @returns milisegundos para el proceso hijo.
+ * Child-process limit, below the tool limit so a stuck runner gives up before the
+ * call budget does.
+ * @param toolTimeoutMs - configured tool limit.
+ * @returns milliseconds for the child process.
  */
 function childTimeout(toolTimeoutMs) {
   return Math.max(5000, Math.min(toolTimeoutMs - 2000, 300000))
 }
 
 /**
- * Comprueba que la ruta activa declare entrada de imagen, el mismo gate que usa `read_image`.
- * @param ctx - contexto del plugin.
- * @param exec - contexto de ejecucion de la herramienta.
- * @param action - accion pedida, para el mensaje de error.
+ * Checks that the active route declares image input, the same gate `read_image` uses.
+ * @param ctx - plugin context.
+ * @param exec - tool execution context.
+ * @param action - requested action, for the error message.
  */
 async function assertImageCapableRoute(ctx, exec, action) {
   const routed = exec.agent?.session.requestHeader()?.config
   const provider = routed?.provider ?? exec.agent?.options.provider
   const model = routed?.model ?? exec.agent?.options.model
-  if (provider === undefined || model === undefined) throw new Error(`computer(${action}): no pude resolver la ruta de modelo activa`)
+  if (provider === undefined || model === undefined) throw new Error(`computer(${action}): could not resolve the active model route`)
   const info = await ctx.llm.resolveModelInfo(provider, model, exec.signal)
   if (info.inputModalities === undefined || !info.inputModalities.includes('image')) {
-    throw new Error(`computer(${action}) devuelve una imagen y el modelo activo ("${model}") no la acepta como entrada; elige un modelo con vision para usar computer use`)
+    throw new Error(`computer(${action}) returns an image and the active model ("${model}") does not accept one as input; pick a model with vision to use computer use`)
   }
 }
 
 /**
- * Registra la herramienta `computer` en el agente.
- * @param ctx - servicios del alcance del agente.
- * @param config - configuracion resuelta del plugin.
+ * Registers the `computer` tool on the agent.
+ * @param ctx - agent-scoped services.
+ * @param config - resolved plugin configuration.
  */
 export function apply(ctx, config) {
   const resolved = {
@@ -598,15 +599,15 @@ export function apply(ctx, config) {
     persistentShell: config.persistentShell !== false,
     timeoutMs: Number.isSafeInteger(config.timeoutMs) && config.timeoutMs > 0 ? config.timeoutMs : 30000,
     requireApprovalFor: Array.isArray(config.requireApprovalFor) ? config.requireApprovalFor : [],
-    // Sin via configurada, se le pregunta al usuario en cada tarea.
+    // With no mode configured, the user is asked on every task.
     browserMode: ['perfil-propio', 'perfil-real', 'sin-navegador'].includes(config.browserMode) ? config.browserMode : null,
     browserProfileDir: typeof config.browserProfileDir === 'string' && config.browserProfileDir !== '' ? config.browserProfileDir : null,
   }
 
-  // Un PowerShell por sesion, caliente: pagar el arranque una vez (y en segundo
-  // plano) es la diferencia entre 8-22 s y milisegundos por accion.
+  // One PowerShell per session, kept warm: paying the startup once (and in the
+  // in the background) is the difference between 8-22 s and milliseconds per action.
   const server = new ComputerServer(scriptPath, resolvePwsh(), childTimeout(resolved.timeoutMs))
-  // Control del navegador por CDP: la via rapida y determinista para trabajo web.
+  // Browser control over CDP: the fast, deterministic path for web work.
   const browser = createBrowserService(resolved)
   if (resolved.persistentShell) {
     // Arranque anticipado: mientras el modelo piensa, el servidor se calienta.
@@ -614,7 +615,7 @@ export function apply(ctx, config) {
       try {
         server.ensureStarted()
       } catch {
-        /* el respaldo de proceso unico cubre un servidor que no arranque */
+        /* the single-process fallback covers a server that will not start */
       }
     }, 0).unref?.()
   }
@@ -624,9 +625,9 @@ export function apply(ctx, config) {
     browser.service.stop()
   })
 
-  // Un servidor no debe sobrevivir a su anfitrion: si el proceso de DSH termina
+  // A server must not outlive its host: if the DSH process ends
   // sin desmontar el plugin (salida brusca, cierre de la aplicacion), el hijo se
-  // cierra con el. Sin esto quedaria un PowerShell vivo esperando peticiones que
+  // closes with it. Without this a live PowerShell would be left waiting for requests
   // ya nadie va a mandar.
   const stopOnExit = () => {
     server.stop()
@@ -636,11 +637,11 @@ export function apply(ctx, config) {
   process.once('beforeExit', stopOnExit)
 
   /**
-   * Manda una peticion al runner: primero al servidor persistente y, si ese
-   * camino falla, a un proceso nuevo. Nunca deja la accion sin intentar.
-   * @param request - objeto de peticion.
-   * @param signal - cancelacion de la llamada.
-   * @returns la respuesta del runner.
+   * Sends one request to the runner: first to the persistent server and, if that
+   * path fails, to a fresh process. It never leaves the action untried.
+   * @param request - request object.
+   * @param signal - call cancellation.
+   * @returns the runner response.
    */
   async function runNative(request, signal) {
     const timeoutMs = childTimeout(resolved.timeoutMs)
@@ -666,7 +667,7 @@ export function apply(ctx, config) {
         type: 'string',
         enum: ACTIONS,
         required: true,
-        description: 'Accion a ejecutar.',
+        description: 'Action to run.',
       },
       x: POINT_FIELDS.x,
       y: POINT_FIELDS.y,
@@ -688,12 +689,12 @@ export function apply(ctx, config) {
       maxHeight: ACTION_SPECS.screenshot.parameters.maxHeight,
       captureAfter: {
         type: 'boolean',
-        description: 'Pide una captura nueva en la misma llamada, util para ver el efecto de click/type/key sin gastar otro turno.',
+        description: 'Requests a fresh capture in the same call, useful to see the effect of click/type/key without spending another turn.',
       },
     },
   }
 
-  /** Mapeo imagen→pantalla de cada captura, para traducir coordenadas medidas en la imagen. */
+  /** Image-to-screen mapping of each capture, to translate coordinates measured on the image. */
   const frames = new Map()
   let lastFrame = 0
 
@@ -703,9 +704,9 @@ export function apply(ctx, config) {
   }
 
   /**
-   * Traduce una coordenada de la accion a pixeles absolutos del escritorio virtual.
+   * Translates an action coordinate into absolute virtual-desktop pixels.
    * @param args - argumentos de la llamada.
-   * @param record - frame capturado mas reciente, si lo hay.
+   * @param record - most recent captured frame, when there is one.
    * @returns coordenadas absolutas.
    */
   function toScreen(args, record) {
@@ -714,7 +715,7 @@ export function apply(ctx, config) {
     const space = args.space ?? (record === undefined ? 'screen' : 'image')
     if (space === 'screen') return { x, y }
     if (record === undefined) {
-      throw new Error('computer: no hay ninguna captura registrada para interpretar coordenadas de imagen; llama primero a screenshot, o pasa space="screen" con pixeles absolutos')
+      throw new Error('computer: there is no recorded capture to interpret image coordinates with; call screenshot first, or pass space="screen" with absolute pixels')
     }
     return {
       x: Math.round(record.location.left + x * record.scale),
@@ -723,22 +724,22 @@ export function apply(ctx, config) {
   }
 
   /**
-   * Contenido que acompanara al valor validado de cada ejecucion.
+   * Content that will accompany each execution's validated value.
    *
-   * El registro valida el valor devuelto contra `output.schema` con
-   * `additionalProperties: false`, asi que un `content` dentro del valor lo
+   * The registry validates the returned value against `output.schema` with
+   * `additionalProperties: false`, so a `content` inside the value
    * invalida entero (INVALID_TOOL_OUTPUT) y el modelo no recibe nada. El
-   * contenido va aparte, por `finalizeContent`, que es el patron de
+   * content travels separately, through `finalizeContent`, which is the pattern
    * `read_image`: el valor se valida limpio y el contenido —imagen incluida— se
-   * adjunta despues.
+   * attached afterwards.
    */
   const pendingContent = new WeakMap()
 
   /**
-   * Registra el contenido de una ejecucion y devuelve el valor validable.
-   * @param exec - contexto de ejecucion que sirve de clave.
-   * @param content - bloques de contenido (texto e imagen).
-   * @param value - valor que se valida contra el esquema de salida.
+   * Records one execution's content and returns the validatable value.
+   * @param exec - execution context used as the key.
+   * @param content - content blocks (text and image).
+   * @param value - value validated against the output schema.
    * @returns el valor validable.
    */
   function deliver(exec, content, value) {
@@ -747,10 +748,10 @@ export function apply(ctx, config) {
   }
 
   /**
-   * Construye el resultado con imagen a partir de una salida de captura.
-   * @param result - salida del runner para `screenshot`.
-   * @param note - linea de texto que acompana a la imagen.
-   * @returns contenido de la herramienta.
+   * Builds the image-bearing result from a capture outcome.
+   * @param result - runner outcome for `screenshot`.
+   * @param note - text line that accompanies the image.
+   * @returns the tool content.
    */
   async function captureContent(result, note) {
     const data = readFileSync(result.path)
@@ -770,7 +771,7 @@ export function apply(ctx, config) {
     }
     const lines = [
       note,
-      `captura frame ${result.frame}: ${reference.width}x${reference.height} px sobre un escritorio de ${result.screen.width}x${result.screen.height} px en (${result.screen.left}, ${result.screen.top})`,
+      `capture frame ${result.frame}: ${reference.width}x${reference.height} px over a desktop of ${result.screen.width}x${result.screen.height} px at (${result.screen.left}, ${result.screen.top})`,
       `orientacion: para tocar algo que veas en la imagen en (px, py), usa space="image" con x=px, y=py (frame ${result.frame}); el plugin aplica el factor ${(result.screen.width / reference.width).toFixed(4)}`,
     ].filter((line) => typeof line === 'string' && line !== '')
     return [
@@ -779,7 +780,7 @@ export function apply(ctx, config) {
     ]
   }
 
-  /** Texto plano para acciones que no devuelven imagen. */
+  /** Plain text for the actions that return no image. */
   function textOnly(value) {
     return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
   }
@@ -804,7 +805,7 @@ export function apply(ctx, config) {
     timeoutMs: Math.max(resolved.timeoutMs, 60000),
     isConcurrencySafe: () => false,
     presentCall(args) {
-      return { card: 'generic', title: `Browser: ${args?.action ?? 'accion'}` }
+      return { card: 'generic', title: `Browser: ${args?.action ?? 'action'}` }
     },
     finalizeContent(exec) {
       const content = pendingContent.get(exec)
@@ -814,12 +815,12 @@ export function apply(ctx, config) {
     },
     async execute(args, exec) {
       const action = args.action
-      // La captura del navegador tambien exige que el modelo vea imagenes.
+      // The browser capture also requires that the model can see images.
       if (action === 'screenshot') await assertImageCapableRoute(ctx, exec, action)
       const outcome = await browser.execute(ctx, args)
       if (outcome.image !== undefined) {
         pendingContent.set(exec, [
-          { type: 'text', text: `captura de la pestana: ${outcome.image.width}x${outcome.image.height} px` },
+          { type: 'text', text: `tab capture: ${outcome.image.width}x${outcome.image.height} px` },
           { type: 'image', attachment: outcome.image },
         ])
       }
@@ -831,26 +832,26 @@ export function apply(ctx, config) {
 }
 
 /**
- * Registra la herramienta `computer`: el escritorio con vision real.
+ * Registers the `computer` tool: the desktop with real vision.
  *
- * `finalizeContent` es la pieza clave. El registro valida el valor que devuelve
- * `execute` contra `output.schema` con `additionalProperties: false`, asi que un
- * `content` dentro del valor lo invalida entero y el modelo no recibe nada. El
- * contenido —imagen incluida— se adjunta despues, por aqui.
+ * `finalizeContent` is the key piece. The registry validates the value `execute`
+ * returns against `output.schema` with `additionalProperties: false`, so a
+ * `content` inside the value invalidates the whole result and the model receives
+ * nothing. The content - image included - is attached afterwards, from here.
  *
- * @param ctx - contexto del plugin.
- * @param resolved - configuracion resuelta.
- * @param runNative - ejecutor del runner nativo (servidor persistente o proceso unico).
- * @param actionSchema - esquema de parametros del despachador.
+ * @param ctx - plugin context.
+ * @param resolved - resolved configuration.
+ * @param runNative - native runner executor (persistent server or single process).
+ * @param actionSchema - dispatcher parameter schema.
  */
 function registerComputerTool(ctx, resolved, runNative, actionSchema) {
   const pendingComputerContent = new WeakMap()
 
   /**
-   * Registra el contenido de una ejecucion y devuelve el valor validable.
-   * @param exec - contexto de ejecucion que sirve de clave.
-   * @param content - bloques de contenido (texto e imagen).
-   * @param value - valor que se valida contra el esquema de salida.
+   * Records one execution's content and returns the validatable value.
+   * @param exec - execution context used as the key.
+   * @param content - content blocks (text and image).
+   * @param value - value validated against the output schema.
    * @returns el valor validable.
    */
   function deliver(exec, content, value) {
@@ -878,7 +879,7 @@ function registerComputerTool(ctx, resolved, runNative, actionSchema) {
     timeoutMs: resolved.timeoutMs,
     isConcurrencySafe: () => false,
     presentCall(args) {
-      return { card: 'generic', title: `Computer: ${args?.action ?? 'accion'}` }
+      return { card: 'generic', title: `Computer: ${args?.action ?? 'action'}` }
     },
     finalizeContent(exec) {
       const content = pendingComputerContent.get(exec)
@@ -888,12 +889,12 @@ function registerComputerTool(ctx, resolved, runNative, actionSchema) {
     },
     async execute(args, exec) {
       const action = args.action
-      if (typeof action !== 'string' || !Object.hasOwn(ACTION_SPECS, action)) throw new Error(`computer: accion desconocida ${JSON.stringify(action)}`)
+      if (typeof action !== 'string' || !Object.hasOwn(ACTION_SPECS, action)) throw new Error(`computer: unknown action ${JSON.stringify(action)}`)
 
-      // Freno opcional: solo las acciones que el despliegue marque como sensibles.
+      // Optional brake: only the actions the deployment marks as sensitive.
       if (resolved.requireApprovalFor.includes(action)) await assertApproved(ctx, exec, action)
 
-      // Las acciones que devuelven imagen pasan por el gate de vision, igual que read_image.
+      // Actions that return an image go through the vision gate, the same as read_image.
       if (action === 'screenshot') await assertImageCapableRoute(ctx, exec, action)
 
       const request = { action }
@@ -927,13 +928,13 @@ function registerComputerTool(ctx, resolved, runNative, actionSchema) {
 }
 
 /**
- * Copia a la peticion nativa los argumentos propios de cada accion, validando lo
- * que el modelo no puede dejar mal.
+ * Copies each action's own arguments into the native request, validating what the
+ * model is not allowed to get wrong.
  *
- * @param action - accion pedida.
- * @param args - argumentos del modelo.
- * @param request - peticion que se enviara al runner.
- * @param resolved - configuracion resuelta.
+ * @param action - requested action.
+ * @param args - model arguments.
+ * @param request - request to be sent to the runner.
+ * @param resolved - resolved configuration.
  */
 function applyArguments(action, args, request, resolved) {
   if (action === 'screenshot') {
@@ -946,13 +947,13 @@ function applyArguments(action, args, request, resolved) {
     request.delayMs = Number.isInteger(args.delayMs) ? args.delayMs : resolved.typeDelayMs
   }
   if (action === 'key') {
-    if (typeof args.key !== 'string' || args.key.trim() === '') throw new Error('computer: key necesita un nombre de tecla')
+    if (typeof args.key !== 'string' || args.key.trim() === '') throw new Error('computer: key needs a key name')
     request.key = args.key
   }
   if (action === 'keys') {
     const keys = Array.isArray(args.keys) ? args.keys : []
     if (keys.length === 0) throw new Error('computer: keys necesita una lista no vacia')
-    if (keys.some((entry) => typeof entry !== 'string')) throw new Error('computer: keys acepta solo nombres de tecla')
+    if (keys.some((entry) => typeof entry !== 'string')) throw new Error('computer: keys accepts key names only')
     request.keys = keys
   }
   if (action === 'scroll') {
@@ -971,8 +972,8 @@ function applyArguments(action, args, request, resolved) {
 }
 
 /**
- * Construye el esquema de parametros del despachador `browser`.
- * @returns esquema en forma de autor, con `required` por propiedad.
+ * Builds the `browser` dispatcher parameter schema.
+ * @returns an author-form schema, with per-property `required`.
  */
 function browserParameters() {
   const properties = {
@@ -980,7 +981,7 @@ function browserParameters() {
       type: 'string',
       enum: Object.keys(BROWSER_ACTIONS),
       required: true,
-      description: 'Accion a ejecutar.',
+      description: 'Action to run.',
     },
   }
   for (const spec of Object.values(BROWSER_ACTIONS)) {

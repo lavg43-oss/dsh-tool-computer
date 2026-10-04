@@ -1,116 +1,116 @@
 /**
- * La herramienta `browser`: control del navegador por CDP.
+ * The `browser` tool: browser control over CDP.
  *
  * @module dsh-tool-computer/browser-tool
  */
 import { MODIFIERS, BrowserService } from './browser.js'
 
 /**
- * La via de navegador de la llamada.
+ * The browser mode for this call.
  *
- * Es obligatoria en la practica: el plugin no la adivina ni la hereda de una
- * tarea anterior. Si falta, el ejecutor falla y pide al modelo que pregunte al
- * usuario, porque el compartimento cambia de una tarea a otra.
+ * It is required in practice: the plugin neither guesses it nor inherits it from
+ * an earlier task. When it is missing, the executor fails and tells the model to
+ * ask the user, because the compartment changes from one task to the next.
  */
 const MODE_FIELD = {
   mode: {
     type: 'string',
-    enum: ['perfil-propio', 'perfil-real', 'sin-navegador'],
-    description: 'Via de navegador elegida por el usuario para ESTA tarea: "perfil-propio" (navegador aislado), "perfil-real" (su Chrome con sus sesiones) o "sin-navegador" (no tocar el navegador).',
+    enum: ['own-profile', 'real-profile', 'no-browser'],
+    description: 'Browser mode the user chose for THIS task: "own-profile" (isolated browser), "real-profile" (their Chrome with their sessions) or "no-browser" (do not touch the browser). The Spanish aliases perfil-propio, perfil-real and sin-navegador are accepted too.',
   },
 }
 
-/** Punto y selector compartidos por las acciones que apuntan a un elemento. */
+/** Point and selector shared by the actions that target an element. */
 const TARGET_FIELDS = {
   ...MODE_FIELD,
   ref: {
     type: 'string',
-    description: 'Referencia del ultimo snapshot (por ejemplo "e12"). Se prefiere sobre selector: es exacta y no depende de adivinar el CSS.',
+    description: 'Reference from the last snapshot (for example "e12"). Preferred over selector: it is exact and does not depend on guessing CSS.',
   },
   selector: {
     type: 'string',
-    description: 'Selector CSS, alternativa a `ref` cuando no hay snapshot o el elemento no aparece en el.',
+    description: 'CSS selector, an alternative to `ref` when there is no snapshot or the element is not in it.',
   },
 }
 
-/** Acciones del navegador y su contrato. */
+/** Browser actions and their contract. */
 export const BROWSER_ACTIONS = {
   tabs: {
-    summary: 'Lista las pestanas abiertas del navegador.',
+    summary: 'Lists the browser tabs that are open.',
     parameters: { ...MODE_FIELD },
     required: [],
   },
   snapshot: {
-    summary: 'Lee la pagina: elementos interactivos indexados (enlaces, botones, campos), texto visible, foco y avisos. Es la forma rapida y exacta de "ver" una pagina web.',
+    summary: 'Reads the page: indexed interactive elements (links, buttons, fields), visible text, focus and notices. This is the fast, exact way to "see" a web page.',
     parameters: {
-      maxElements: { type: 'integer', description: 'Cuantos elementos interactivos devolver. Por defecto, la configuracion del plugin.' },
+      maxElements: { type: 'integer', description: 'How many interactive elements to return. Defaults to the plugin configuration.' },
       ...MODE_FIELD,
     },
     required: [],
   },
   click: {
-    summary: 'Hace clic en un elemento, por referencia del snapshot o por selector CSS.',
+    summary: 'Clicks an element, by snapshot reference or by CSS selector.',
     parameters: { ...TARGET_FIELDS },
     required: [],
   },
   type: {
-    summary: 'Escribe texto en un elemento. Sin `ref` ni `selector`, escribe en el elemento que ya tiene el foco.',
+    summary: 'Types text into an element. Without `ref` or `selector`, types into whatever already has focus.',
     parameters: {
       ...TARGET_FIELDS,
-      text: { type: 'string', required: true, description: 'Texto literal a escribir.' },
-      clearFirst: { type: 'boolean', description: 'Vacia el campo antes de escribir. Por defecto true.' },
-      pressEnter: { type: 'boolean', description: 'Pulsa Enter despues de escribir, para enviar formularios o busquedas.' },
+      text: { type: 'string', required: true, description: 'Literal text to type.' },
+      clearFirst: { type: 'boolean', description: 'Clears the field before typing. Defaults to true.' },
+      pressEnter: { type: 'boolean', description: 'Presses Enter after typing, to submit forms or run searches.' },
     },
     required: ['text'],
   },
   press: {
-    summary: 'Pulsa una tecla del navegador, opcionalmente con modificadores.',
+    summary: 'Presses a browser key, optionally with modifiers.',
     parameters: {
       key: {
         type: 'string',
         required: true,
         enum: ['Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', 'Space'],
-        description: 'Tecla a pulsar.',
+        description: 'Key to press.',
       },
       ...MODE_FIELD,
       modifiers: {
         type: 'array',
-        description: 'Modificadores activos mientras se pulsa, por ejemplo ["ctrl"].',
+        description: 'Modifiers held while pressing, for example ["ctrl"].',
         items: { type: 'string', enum: ['alt', 'ctrl', 'meta', 'shift'] },
       },
     },
     required: ['key'],
   },
   navigate: {
-    summary: 'Navega a una direccion y devuelve el snapshot de la pagina cargada.',
+    summary: 'Navigates to a URL and returns the snapshot of the loaded page.',
     parameters: {
-      url: { type: 'string', required: true, description: 'Direccion destino, absoluta.' },
+      url: { type: 'string', required: true, description: 'Destination URL, absolute.' },
       ...MODE_FIELD,
     },
     required: ['url'],
   },
   evaluate: {
-    summary: 'Ejecuta JavaScript en la pagina y devuelve el resultado. Para leer datos exactos (precios, notas, tablas) que el texto visible no muestra.',
+    summary: 'Runs JavaScript in the page and returns the result. For exact data (prices, grades, tables) that the visible text does not show.',
     parameters: {
-      expression: { type: 'string', required: true, description: 'Expresion JavaScript cuyo valor se devuelve.' },
+      expression: { type: 'string', required: true, description: 'JavaScript expression whose value is returned.' },
       ...MODE_FIELD,
     },
     required: ['expression'],
   },
   screenshot: {
-    summary: 'Captura la pestana como imagen para el modelo. Usalo solo cuando la vista importe (graficos, PDF, disposicion); para leer o actuar, el snapshot es mas rapido y exacto.',
+    summary: 'Captures the tab as an image for the model. Use it only when the visual matters (charts, PDFs, layout); for reading or acting, the snapshot is faster and exact.',
     parameters: {
-      fullPage: { type: 'boolean', description: 'Capturar la pagina entera en vez de solo la vista visible.' },
+      fullPage: { type: 'boolean', description: 'Captures the whole page instead of only the visible viewport.' },
       ...MODE_FIELD,
     },
     required: [],
   },
   wait: {
-    summary: 'Espera a que aparezca un texto o un selector en la pagina.',
+    summary: 'Waits for a text or a selector to appear in the page.',
     parameters: {
-      text: { type: 'string', description: 'Texto que debe aparecer. Alternativa a selector.' },
-      selector: { type: 'string', description: 'Selector que debe existir. Alternativa a text.' },
-      timeoutMs: { type: 'integer', description: 'Cuanto esperar como maximo. Por defecto 10000.' },
+      text: { type: 'string', description: 'Text that must appear. Alternative to selector.' },
+      selector: { type: 'string', description: 'Selector that must exist. Alternative to text.' },
+      timeoutMs: { type: 'integer', description: 'How long to wait at most. Defaults to 10000.' },
       ...MODE_FIELD,
     },
     required: [],
@@ -118,42 +118,42 @@ export const BROWSER_ACTIONS = {
 }
 
 /**
- * Construye la descripcion orientada al modelo.
- * @returns descripcion de la herramienta.
+ * Builds the model-facing description.
+ * @returns the tool description.
  */
 export function browserDescription() {
   const lines = Object.entries(BROWSER_ACTIONS).map(([action, spec]) => `- ${action}: ${spec.summary}`)
   return [
-    'Controla Chrome o Edge por el protocolo de depuracion: lee la estructura de la pagina y actua sobre ella sin estimar coordenadas.',
-    'Para trabajo web, esta es la via preferida frente a `computer`: el snapshot devuelve los elementos con su texto y una referencia, y las acciones van por esa referencia. Es mas rapido y no falla por un pixel de diferencia.',
-    'Flujo normal: `snapshot`, leer las referencias, y luego `click` o `type` con el `ref` correspondiente. Tras cada accion que cambie la pagina, toma un snapshot nuevo: las referencias viejas dejan de valer.',
-    'VIA OBLIGATORIA: cada llamada lleva `mode` con la via que el usuario eligio para ESTA tarea. Si no la sabes, preguntale con ask_user_question antes de llamar, y no reutilices la de una tarea anterior.',
-    'Las tres vias son: "perfil-propio" (navegador aislado, no toca sus sesiones), "perfil-real" (su Chrome de siempre, con todo lo que tenga abierto) y "sin-navegador" (no se toca el navegador; para banca o tramites personales).',
-    'Usa `computer` (vision y clic real) solo cuando la tarea salga del navegador o la vista sea imprescindible.',
-    'Acciones:',
+    'Drives Chrome or Edge over the DevTools Protocol: reads the page structure and acts on it without estimating coordinates.',
+    'For web work this is the preferred path over `computer`: the snapshot returns elements with their text and a reference, and actions go by that reference. It is faster and does not miss by a pixel.',
+    'Normal flow: `snapshot`, read the references, then `click` or `type` with the matching `ref`. After any action that changes the page, take a new snapshot: old references stop resolving.',
+    'MODE IS MANDATORY: every call carries `mode` with the mode the user chose for THIS task. If you do not know it, ask with ask_user_question before calling, and do not reuse the one from an earlier task.',
+    'The three modes are: "own-profile" (isolated browser, touches none of their sessions), "real-profile" (their everyday Chrome, with everything they have open) and "no-browser" (the browser is not touched at all; for banking or personal paperwork).',
+    'Use `computer` (vision and real clicking) only when the task leaves the browser or the visual is essential.',
+    'Actions:',
     ...lines,
   ].join('\n')
 }
 
 /**
- * Crea el servicio de navegador y el ejecutor de sus acciones.
+ * Creates the browser service and the executor for its actions.
  *
- * @param config - configuracion resuelta del plugin.
- * @returns el servicio y una funcion que ejecuta una accion contra un contexto.
+ * @param config - resolved plugin configuration.
+ * @returns the service and a function that runs one action against a context.
  */
 export function createBrowserService(config) {
   const service = new BrowserService(config)
 
   /**
-   * Ejecuta una accion del navegador.
-   * @param ctx - contexto del plugin: se usa para publicar la captura.
-   * @param args - argumentos de la llamada.
-   * @returns el resultado, ya listo para el modelo.
+   * Runs one browser action.
+   * @param ctx - plugin context, used to publish the capture.
+   * @param args - call arguments.
+   * @returns the result, ready for the model.
    */
   async function execute(ctx, args) {
     const action = args.action
     if (typeof action !== 'string' || BROWSER_ACTIONS[action] === undefined) {
-      throw new Error(`browser: accion desconocida ${JSON.stringify(action)}`)
+      throw new Error(`browser: unknown action ${JSON.stringify(action)}`)
     }
 
     if (action === 'tabs') {
@@ -178,20 +178,20 @@ export function createBrowserService(config) {
     }
 
     if (action === 'type') {
-      if (typeof args.text !== 'string') throw new Error('browser: type necesita text')
+      if (typeof args.text !== 'string') throw new Error('browser: type needs text')
       let target
       if (args.ref !== undefined || args.selector !== undefined) {
         target = await service.resolve(args.ref, args.selector, args.mode)
         await service.clickAt(target.x, target.y)
       }
       if (args.clearFirst !== false) {
-        // Selecciona todo y lo reemplaza: vale para campos vacios y con contenido.
+        // Select all and replace: works for empty fields and for filled ones.
         await service.connection.session.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: MODIFIERS.ctrl })
         await service.connection.session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65, modifiers: MODIFIERS.ctrl })
       }
       await service.insertText(args.text)
       if (args.pressEnter === true) await service.pressKey('Enter')
-      return { action, result: { ok: true, typed: args.text.length, into: target?.label ?? target?.tag ?? 'elemento con foco', pressedEnter: args.pressEnter === true } }
+      return { action, result: { ok: true, typed: args.text.length, into: target?.label ?? target?.tag ?? 'focused element', pressedEnter: args.pressEnter === true } }
     }
 
     if (action === 'press') {
@@ -223,42 +223,42 @@ export function createBrowserService(config) {
 
     if (action === 'wait') {
       const timeoutMs = Number.isInteger(args.timeoutMs) ? Math.max(500, Math.min(args.timeoutMs, 120000)) : 10000
-      if (args.text === undefined && args.selector === undefined) throw new Error('browser: wait necesita text o selector')
+      if (args.text === undefined && args.selector === undefined) throw new Error('browser: wait needs text or selector')
       const outcome = await service.waitFor({ text: args.text, selector: args.selector, timeoutMs }, args.mode)
       return { action, result: { ok: outcome.found, ...outcome } }
     }
 
-    throw new Error(`browser: accion sin implementar: ${action}`)
+    throw new Error(`browser: action not implemented: ${action}`)
   }
 
   return { service, execute }
 }
 
 /**
- * Formatea el snapshot como texto compacto, que es lo que el modelo lee.
- * @param page - estado devuelto por el snapshot.
- * @returns texto del snapshot.
+ * Formats the snapshot as compact text, which is what the model reads.
+ * @param page - state returned by the snapshot.
+ * @returns the snapshot text.
  */
 export function formatSnapshot(page) {
   const head = [
     `url: ${page.url}`,
-    page.title === '' ? undefined : `titulo: ${page.title}`,
-    `vista: ${page.viewport.width}x${page.viewport.height} px, scroll ${page.viewport.scrollY} de ${page.viewport.scrollHeight}`,
-    page.focused === null ? undefined : `foco: ${page.focused}`,
-    `elementos interactivos: ${page.elementCount}${page.elementCount > page.elements.length ? ` (mostrados ${page.elements.length})` : ''}`,
+    page.title === '' ? undefined : `title: ${page.title}`,
+    `viewport: ${page.viewport.width}x${page.viewport.height} px, scroll ${page.viewport.scrollY} of ${page.viewport.scrollHeight}`,
+    page.focused === null ? undefined : `focus: ${page.focused}`,
+    `interactive elements: ${page.elementCount}${page.elementCount > page.elements.length ? ` (showing ${page.elements.length})` : ''}`,
   ].filter((line) => line !== undefined)
 
   const rows = page.elements.map((element) => {
     const parts = [`[${element.ref}]`, `<${element.tag}${element.type === undefined ? '' : ` type=${element.type}`}>`]
     if (element.label !== '') parts.push(`"${element.label}"`)
-    if (element.value !== undefined) parts.push(`valor="${element.value}"`)
-    if (element.checked !== undefined) parts.push(element.checked ? 'marcado' : 'sin marcar')
-    if (element.disabled === true) parts.push('DESHABILITADO')
-    if (element.offscreen === true) parts.push('fuera de la vista')
+    if (element.value !== undefined) parts.push(`value="${element.value}"`)
+    if (element.checked !== undefined) parts.push(element.checked ? 'checked' : 'unchecked')
+    if (element.disabled === true) parts.push('DISABLED')
+    if (element.offscreen === true) parts.push('offscreen')
     if (element.selector !== undefined) parts.push(`selector=${element.selector}`)
     return parts.join(' ')
   })
 
-  const text = page.text === '' ? '' : `\n--- texto visible${page.truncated ? ' (recortado)' : ''} ---\n${page.text}`
+  const text = page.text === '' ? '' : `\n--- visible text${page.truncated ? ' (truncated)' : ''} ---\n${page.text}`
   return `${head.join('\n')}\n\n${rows.join('\n')}${text}`
 }

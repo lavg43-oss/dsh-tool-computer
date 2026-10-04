@@ -1,12 +1,12 @@
-# dsh-tool-computer — Windows desktop control runner.
+# dsh-tool-computer - Windows desktop control runner.
 # Reads one JSON object on stdin, writes one JSON object on stdout.
 # Actions: screenshot | click | double_click | right_click | move | drag | scroll |
 #          type | key | keys | cursor | windows | focus_window | wait
 # Exit codes: 0 ok, 2 no interactive desktop, 3 usage/validation error, 1 unexpected failure.
 [CmdletBinding()]
 param(
-  # Modo servidor: atiende peticiones por stdin hasta que el flujo se cierre.
-  # Sin el, procesa una sola peticion y termina (compatible con lo anterior).
+  # Server mode: serves requests from stdin until the stream closes.
+  # Without it, processes a single request and exits (backwards compatible).
   [switch]$Server
 )
 
@@ -23,7 +23,7 @@ class Fail : System.Exception {
   }
 }
 
-# Reloj y utilidades en el ambito del script: los usa tambien el bucle principal.
+# Clock and helpers at script scope: the main loop uses them too.
 $script:SW = [System.Diagnostics.Stopwatch]::StartNew()
 function Elapsed { return [int]$script:SW.ElapsedMilliseconds }
 function Wait-Ms([int]$ms) { if ($ms -gt 0) { Start-Sleep -Milliseconds $ms } }
@@ -31,9 +31,9 @@ function Throw-Fail([string]$message, [int]$code = 3, [string]$action = '') {
   throw [Fail]::new($message, $code, $action)
 }
 
-# Todo el trabajo de inicializacion vive aqui para que el mismo codigo sirva en
-# los dos modos: una peticion (proceso nuevo) o muchas (servidor persistente,
-# que no vuelve a pagar el arranque de PowerShell ni la compilacion nativa).
+# All the initialization work lives here so the same code serves both modes: one
+# request (fresh process) or many (persistent server, which does not pay for the
+# PowerShell startup or the native compilation again).
 function Initialize-Native {
 # ── native surface ────────────────────────────────────────────────────────────
 Add-Type -AssemblyName System.Drawing
@@ -194,7 +194,7 @@ try {
   try {
     Add-Type -TypeDefinition $native -Language CSharp
   } catch {
-    Throw-Fail "no pude compilar la superficie nativa (Add-Type): $($_.Exception.Message)" 1
+    Throw-Fail "could not compile the native surface (Add-Type): $($_.Exception.Message)" 1
   }
 }
 
@@ -203,10 +203,10 @@ try { [void][DshNative]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { }
 try { [void][DshNative]::SetProcessDPIAware() } catch { }
 
 if (-not [DshNative]::HasInteractiveDesktop()) {
-  Throw-Fail 'no hay escritorio interactivo accesible desde este proceso (window station no interactivo); no puedo capturar ni inyectar entrada' 2
+  Throw-Fail 'no interactive desktop is reachable from this process (non-interactive window station); I cannot capture or inject input' 2
 }
 }
-# ── fin de Initialize-Native ──────────────────────────────────────────────────
+# ── end of Initialize-Native ──────────────────────────────────────────────────
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 $script:TempRoot = Join-Path $env:TEMP 'dsh-computer'
@@ -227,17 +227,17 @@ $VK = @{
 for ($i = 0; $i -lt 24; $i++) { $VK["F$($i + 1)"] = 0x70 + $i }
 for ($i = 0; $i -lt 10; $i++) { $VK["NUMPAD$i"] = 0x60 + $i }
 
-# Aplicaciones que la accion start_app puede abrir. Lista blanca, no ruta libre:
-# arrancar procesos arbitrarios seria una capacidad mucho mayor que la pedida.
+# Applications that the start_app action may open. An allowlist, not a free path:
+# launching arbitrary processes would be a much larger capability than requested.
 $script:Apps = @{
   'notepad' = 'notepad.exe'; 'bloc' = 'notepad.exe'; 'calculator' = 'calc.exe'; 'calc' = 'calc.exe'
   'paint' = 'mspaint.exe'; 'explorer' = 'explorer.exe'; 'cmd' = 'cmd.exe'; 'powershell' = 'powershell.exe'
 }
 function Get-AppExecutable([string]$app) {
   $name = $app.Trim().ToLowerInvariant()
-  if ($name -eq '') { throw 'start_app necesita app' }
+  if ($name -eq '') { throw 'start_app needs app' }
   if (-not $script:Apps.ContainsKey($name)) {
-    throw "app no permitida: '$app'. Permitidas: $(($script:Apps.Keys | Sort-Object) -join ', ')"
+    throw "app not allowed: '$app'. Allowed: $(($script:Apps.Keys | Sort-Object) -join ', ')"
   }
   return $script:Apps[$name]
 }
@@ -271,7 +271,7 @@ $script:ExtendedKeys = @('UP', 'DOWN', 'LEFT', 'RIGHT', 'HOME', 'END', 'PAGEUP',
   'INSERT', 'DELETE', 'DEL', 'WIN', 'WINDOWS', 'LWIN', 'RWIN', 'APPS', 'PRINTSCREEN', 'SNAPSHOT', 'NUMLOCK')
 
 function Resolve-Vk([string]$key) {
-  if ([string]::IsNullOrWhiteSpace($key)) { throw 'nombre de tecla vacio' }
+  if ([string]::IsNullOrWhiteSpace($key)) { throw 'empty key name' }
   $name = $key.Trim().ToUpperInvariant()
   if ($name.Length -eq 1) {
     $c = [char]$name[0]
@@ -280,7 +280,7 @@ function Resolve-Vk([string]$key) {
   $alias = @{ 'CMD' = 'WIN'; 'META' = 'WIN'; 'OPTION' = 'ALT'; 'COMMAND' = 'WIN'; 'ESCAPE' = 'ESC'; 'RETURN' = 'ENTER' }
   if ($alias.ContainsKey($name)) { $name = $alias[$name] }
   if ($VK.ContainsKey($name)) { return [int]$VK[$name] }
-  throw "tecla desconocida: '$key'"
+  throw "unknown key: '$key'"
 }
 function Key-Press([string]$key, [int]$holdMs = 12) {
   $vk = Resolve-Vk $key
@@ -293,7 +293,7 @@ function Key-Press([string]$key, [int]$holdMs = 12) {
 function Screen-Bounds {
   $left = [DshNative]::VirtualScreenLeft(); $top = [DshNative]::VirtualScreenTop()
   $width = [DshNative]::VirtualScreenWidth(); $height = [DshNative]::VirtualScreenHeight()
-  if ($width -le 0 -or $height -le 0) { throw 'el escritorio virtual no reporta tamano' }
+  if ($width -le 0 -or $height -le 0) { throw 'the virtual desktop does not report a size' }
   return [pscustomobject]@{ left = $left; top = $top; width = $width; height = $height }
 }
 function Monitor-Indices { [int[]]@(0) }
@@ -414,10 +414,10 @@ function Do-Windows {
 function Get-WindowByQuery([string]$query, [int64]$handle, [switch]$visibleOnly) {
   if ($handle -ne 0) {
     $hwnd = [IntPtr]$handle
-    if (-not [DshNative]::IsWindow($hwnd)) { throw "ninguna ventana tiene el handle $handle" }
+    if (-not [DshNative]::IsWindow($hwnd)) { throw "no window has handle $handle" }
     return (Get-WindowInfo $handle)
   }
-  if ([string]::IsNullOrWhiteSpace($query)) { throw 'focus_window necesita title o handle' }
+  if ([string]::IsNullOrWhiteSpace($query)) { throw 'focus_window needs title or handle' }
   $needle = $query.ToLowerInvariant()
   $match = $null
   foreach ($candidate in [DshNative]::TopLevelWindowHandles()) {
@@ -430,20 +430,20 @@ function Get-WindowByQuery([string]$query, [int64]$handle, [switch]$visibleOnly)
     if (-not $visibleOnly) { return $info }
     if (-not $match -or ($info.bounds.width * $info.bounds.height) -gt ($match.bounds.width * $match.bounds.height)) { $match = $info }
   }
-  if (-not $match) { throw "ninguna ventana visible contiene '$query' en el titulo" }
+  if (-not $match) { throw "no visible window contains '$query' in its title" }
   return $match
 }
 
 # ── dispatch ──────────────────────────────────────────────────────────────────
-# Una peticion: se valida, se ejecuta y se devuelve el objeto de resultado. Quien
-# llama decide si lo escribe y termina (modo una peticion) o si sigue en el bucle
-# (modo servidor).
+# One request: it is validated, executed and the result object is returned. The
+# caller decides whether to write it and exit (one-request mode) or to stay in the
+# loop (server mode).
 function Invoke-Request([string]$rawInput) {
-if ([string]::IsNullOrWhiteSpace($rawInput)) { Throw-Fail 'no recibi un objeto JSON por stdin' 3 }
-try { $request = $rawInput | ConvertFrom-Json } catch { Throw-Fail "JSON invalido en stdin: $($_.Exception.Message)" 3 }
+if ([string]::IsNullOrWhiteSpace($rawInput)) { Throw-Fail 'I did not receive a JSON object on stdin' 3 }
+try { $request = $rawInput | ConvertFrom-Json } catch { Throw-Fail "invalid JSON on stdin: $($_.Exception.Message)" 3 }
 
 $action = [string]$request.action
-if ([string]::IsNullOrWhiteSpace($action)) { Throw-Fail 'falta el campo action' 3 }
+if ([string]::IsNullOrWhiteSpace($action)) { Throw-Fail 'the action field is missing' 3 }
 
 try {
   switch ($action) {
@@ -457,7 +457,7 @@ try {
     'windows' { $result = Do-Windows }
     'wait' {
       $ms = if ($request.PSObject.Properties['ms'] -and $request.ms) { [int]$request.ms } else { 500 }
-      if ($ms -gt 30000) { throw 'wait acepta como maximo 30000 ms' }
+      if ($ms -gt 30000) { throw 'wait accepts at most 30000 ms' }
       Wait-Ms $ms
       $result = [ordered]@{ ok = $true; action = 'wait'; waitedMs = $ms; ms = (Elapsed) }
     }
@@ -506,7 +506,7 @@ try {
     }
     'type' {
       $text = [string]$request.text
-      if ([string]::IsNullOrEmpty($text)) { throw 'type necesita text' }
+      if ([string]::IsNullOrEmpty($text)) { throw 'type needs text' }
       $perChar = if ($request.PSObject.Properties['delayMs'] -and $request.delayMs) { [int]$request.delayMs } else { 8 }
       foreach ($ch in $text.ToCharArray()) {
         $code = [int][char]$ch
@@ -524,9 +524,9 @@ try {
     }
     'keys' {
       $keys = @($request.keys)
-      if ($keys.Count -eq 0) { throw 'keys necesita una lista no vacia' }
-      # Dos listas paralelas de escalares: empaquetar pares en arrays dentro de
-      # una variable de PowerShell desenvuelve el array y rompe el indice [0].
+      if ($keys.Count -eq 0) { throw 'keys needs a non-empty list' }
+      # Two parallel lists of scalars: packing pairs into arrays inside a
+      # PowerShell variable unwraps the array and breaks index [0].
       $vkeys = @()
       $vextended = @()
       foreach ($key in $keys) {
@@ -541,7 +541,7 @@ try {
         }
         Wait-Ms 40
       } finally {
-        # Suelta siempre lo que ya bajo, en orden inverso, aunque algo falle.
+        # Always release what was already pressed down, in reverse order, even if something fails.
         for ($i = $pressed - 1; $i -ge 0; $i--) {
           [void][DshNative]::Key([uint16]$vkeys[$i], 0, $true, [bool]$vextended[$i])
           Wait-Ms 15
@@ -574,7 +574,7 @@ try {
     'start_app' {
       $result = Do-StartApp ([string]$request.app)
     }
-    default { Throw-Fail "accion desconocida: '$action'" 3 $action }
+    default { Throw-Fail "unknown action: '$action'" 3 $action }
   }
 
   # Optional trailing capture so one call shows its own result.
@@ -594,23 +594,23 @@ try {
   $inner = $exception.InnerException
   while ($inner) { $message = "$message <- $($inner.Message)"; $inner = $inner.InnerException }
   if ($exception -is [Fail]) { throw $exception }
-  throw [Fail]::new("fallo '$action': $message", 1, $action)
+  throw [Fail]::new("failure '$action': $message", 1, $action)
 }
 }
-# ── fin de Invoke-Request ─────────────────────────────────────────────────────
+# ── end of Invoke-Request ─────────────────────────────────────────────────────
 
-# ── bucle principal ───────────────────────────────────────────────────────────
+# ── main loop ─────────────────────────────────────────────────────────────────
 Initialize-Native
 
-# Respuesta JSON en una sola linea: el proceso Node lee por lineas.
+# JSON reply on a single line: the Node process reads line by line.
 function Write-Reply($payload) {
   [Console]::Out.WriteLine(($payload | ConvertTo-Json -Compress -Depth 8))
   [Console]::Out.Flush()
 }
 
 if ($Server) {
-  # Servidor persistente: una peticion por linea hasta que se cierre stdin.
-  # Se paga el arranque una vez y luego cada accion cuesta milisegundos.
+  # Persistent server: one request per line until stdin closes.
+  # Startup is paid once and then each action costs milliseconds.
   $stdin = [Console]::In
   while ($true) {
     $line = $stdin.ReadLine()
@@ -630,11 +630,11 @@ if ($Server) {
   exit 0
 }
 
-# Sin stdin redirigido no hay peticion que leer: mejor fallar claro que quedarse
-# esperando. Es la diferencia entre un error util y un proceso colgado que nadie
-# mira (paso durante el desarrollo).
+# With no redirected stdin there is no request to read: better to fail clearly
+# than to wait. It is the difference between a useful error and a hung process
+# nobody watches (it happened during development).
 if (-not [Console]::IsInputRedirected) {
-  Throw-Fail 'este runner lee su peticion JSON por stdin; redirige una peticion (o usa -Server para el modo servidor) en vez de lanzarlo a mano' 3
+  Throw-Fail 'this runner reads its JSON request from stdin; redirect a request (or use -Server for server mode) instead of launching it by hand' 3
 }
 
 $rawInput = [Console]::In.ReadToEnd()

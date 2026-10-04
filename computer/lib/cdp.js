@@ -1,12 +1,12 @@
 /**
  * Cliente minimo de Chrome DevTools Protocol.
  *
- * Habla CDP por el `WebSocket` que trae Node desde la 22, asi que no hace falta
- * Playwright, Puppeteer ni el paquete `ws`: cero dependencias para controlar el
- * navegador de forma determinista.
+ * Speaks CDP over the `WebSocket` Node has shipped since 22, so no Playwright,
+ * Puppeteer or `ws` package is needed: zero dependencies to drive the browser
+ * deterministically.
  *
- * Se conecta a un Chrome ya abierto con depuracion remota o lanza uno nuevo, se
- * adjunta a una pestana, y expone `send()` sobre una sesion plana.
+ * It connects to a Chrome already open with remote debugging, or launches a new
+ * one, attaches to one tab, and exposes `send()` over a flat connection.
  *
  * @module dsh-tool-computer/cdp
  */
@@ -15,7 +15,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-/** Puertos que se prueban, en orden, para encontrar un navegador depurable. */
+/** Ports tried in order, to find a debuggable browser. */
 const DEFAULT_PORTS = [9222, 9223, 9224]
 
 /** Rutas habituales de Chrome y Edge en Windows. */
@@ -28,9 +28,9 @@ const BROWSER_CANDIDATES = [
 ]
 
 /**
- * Busca el ejecutable del navegador.
- * @param preferred - ruta explicita, si el despliegue la configura.
- * @returns ruta absoluta, o undefined si no hay ninguno.
+ * Finds the browser executable.
+ * @param preferred - explicit path, when the deployment configures one.
+ * @returns an absolute path, or undefined when there is none.
  */
 export function findBrowser(preferred) {
   const candidates = preferred === undefined ? BROWSER_CANDIDATES : [preferred, ...BROWSER_CANDIDATES]
@@ -41,9 +41,9 @@ export function findBrowser(preferred) {
 }
 
 /**
- * Pregunta a un puerto si hay un navegador depurable detras.
+ * Asks a port whether a debuggable browser is behind it.
  * @param port - puerto a probar.
- * @param timeoutMs - limite de la peticion.
+ * @param timeoutMs - request limit.
  * @returns la version anunciada, o undefined.
  */
 async function probePort(port, timeoutMs = 1500) {
@@ -58,14 +58,14 @@ async function probePort(port, timeoutMs = 1500) {
 }
 
 /**
- * Espera a que un navegador recien lanzado publique su endpoint.
+ * Waits for a freshly launched browser to publish its endpoint.
  *
- * Chrome tarda en publicar el puerto cuando arranca con un perfil que acaba de
- * usarse, asi que se espera con holgura y se comprueba varias veces.
+ * Chrome takes a while to publish the port when it starts with a profile that was
+ * just used, so this waits generously and checks several times.
  *
- * @param port - puerto esperado.
- * @param timeoutMs - cuanto esperar.
- * @returns la version anunciada.
+ * @param port - expected port.
+ * @param timeoutMs - how long to wait.
+ * @returns the announced version.
  */
 async function waitForPort(port, timeoutMs = 45000) {
   const deadline = Date.now() + timeoutMs
@@ -76,19 +76,19 @@ async function waitForPort(port, timeoutMs = 45000) {
     if (found !== undefined) return found
     await new Promise((resolve) => setTimeout(resolve, attempts < 10 ? 300 : 1000))
   }
-  throw new Error(`el navegador no publico su endpoint de depuracion en el puerto ${port} tras ${timeoutMs} ms; puede haber otra instancia usando ese puerto, prueba con browserPorts: [9223]`)
+  throw new Error(`the browser did not publish its debugging endpoint on port ${port} after ${timeoutMs} ms; another instance may be using that port, try browserPorts: [9223]`)
 }
 
 /**
- * Comprueba si un perfil de Chrome parece estar en uso.
+ * Checks whether a Chrome profile looks like it is in use.
  *
- * Chrome bloquea su perfil con un archivo `lockfile` y un `SingletonLock`
- * mientras corre, y no permite una segunda instancia sobre el mismo perfil. En
- * vez de esperar 45 segundos a un endpoint que no va a llegar, se avisa al
- * instante con la instruccion util: cerrar Chrome.
+ * Chrome locks its profile with a `lockfile` and a `SingletonLock` while running,
+ * and refuses a second instance over the same profile. Instead of waiting 45
+ * seconds for an endpoint that will never answer, this warns immediately with the
+ * useful instruction: close Chrome.
  *
- * @param profileDir - ruta del perfil.
- * @returns si hay un bloqueo activo.
+ * @param profileDir - profile path.
+ * @returns whether a lock is active.
  */
 function profileLooksLocked(profileDir) {
   if (typeof profileDir !== 'string' || profileDir === '') return false
@@ -100,17 +100,16 @@ function profileLooksLocked(profileDir) {
 }
 
 /**
- * Una sesion CDP sobre una pestana concreta.
+ * One CDP connection to one concrete tab.
  *
- * Se conecta al WebSocket **de la pestana**, no al del navegador: asi los
- * comandos van directos, sin `sessionId` y sin enrutado por target. Desde la
- * pestana siguen funcionando los dominios del navegador que hacen falta
- * (`Target`, `Browser`).
+ * Connects to the **tab's** WebSocket, not the browser's: that way commands go
+ * straight through, with no `sessionId` and no target routing. From the tab, the
+ * browser domains that are needed (`Target`, `Browser`) still work.
  */
 export class CdpSession {
   /**
-   * @param socket - WebSocket ya abierto a la pestana.
-   * @param target - informacion de la pestana.
+   * @param socket - WebSocket already open to the tab.
+   * @param target - tab information.
    */
   constructor(socket, target) {
     this.socket = socket
@@ -135,18 +134,18 @@ export class CdpSession {
     socket.addEventListener('close', () => {
       for (const [, waiting] of this.pending) {
         clearTimeout(waiting.timer)
-        waiting.reject(new Error('la conexion con el navegador se cerro'))
+        waiting.reject(new Error('the connection to the browser was closed'))
       }
       this.pending.clear()
     })
   }
 
   /**
-   * Envia un comando CDP y espera su resultado.
-   * @param method - nombre del comando, p. ej. `Page.navigate`.
-   * @param params - parametros del comando.
+   * Sends a CDP command and waits for its result.
+   * @param method - command name, for example `Page.navigate`.
+   * @param params - command parameters.
    * @param timeoutMs - limite.
-   * @returns el resultado del comando.
+   * @returns the command result.
    */
   send(method, params = {}, timeoutMs = 20000) {
     const id = this.nextId++
@@ -160,7 +159,7 @@ export class CdpSession {
   }
 
   /**
-   * Evalua una expresion en la pagina y devuelve su valor.
+   * Evaluates an expression in the page and returns its value.
    * @param expression - expresion JavaScript.
    * @param timeoutMs - limite.
    * @returns el valor devuelto, ya deserializado.
@@ -172,17 +171,17 @@ export class CdpSession {
       awaitPromise: true,
     }, timeoutMs)
     if (result.exceptionDetails !== undefined) {
-      const text = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? 'error en la pagina'
-      throw new Error(`la pagina lanzo un error: ${text.slice(0, 300)}`)
+      const text = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? 'error in the page'
+      throw new Error(`the page threw an error: ${text.slice(0, 300)}`)
     }
     return result.result?.value
   }
 }
 
-/** Un navegador bajo control: su proceso (si lo lanzamos) y la sesion activa. */
+/** A browser under control: its process (when we launched it) and the live connection. */
 export class BrowserConnection {
   /**
-   * @param config - puertos, ejecutable y perfil con los que conectar o lanzar.
+   * @param config - ports, executable and profile to connect or launch with.
    */
   constructor(config) {
     this.config = config
@@ -195,11 +194,11 @@ export class BrowserConnection {
   }
 
   /**
-   * Conecta a un navegador depurable o lanza uno.
+   * Connects to a debuggable browser or launches one.
    *
-   * Si un puerto esta ocupado por un navegador que no responde (una instancia
-   * zombi de una sesion anterior), se prueba el siguiente antes de darse por
-   * vencido: quedarse clavado en el primer puerto deja la herramienta inservible.
+   * If a port is taken by a browser that does not answer (a zombie instance from
+   * an earlier session), the next one is tried before giving up: getting stuck on
+   * the first port leaves the tool unusable.
    *
    * @returns informacion de la conexion.
    */
@@ -240,25 +239,24 @@ export class BrowserConnection {
         return { reused: false, port, browser: this.browserInfo, executable, profileDir, version: found.version.Browser }
       } catch (error) {
         lastError = error
-        // El lanzamiento fallo: no dejes el proceso ni el perfil colgando.
+        // The launch failed: do not leave the process or the profile dangling.
         this.stop()
       }
     }
-    throw lastError ?? new Error(`ningun puerto de ${this.config.ports.join(', ')} quedo disponible para el navegador`)
+    throw lastError ?? new Error(`none of the ports ${this.config.ports.join(', ')} was available for the browser`)
   }
 
   /**
-   * Se conecta al WebSocket de la pestana activa y habilita los dominios que usa
-   * la herramienta.
-   * @param port - puerto del endpoint de depuracion.
+   * Connects to the active tab's WebSocket and enables the domains the tool uses.
+   * @param port - debugging endpoint port.
    */
   async attach(port) {
     this.port = port
     const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()
-    this.browserInfo = version.Browser ?? 'navegador'
+    this.browserInfo = version.Browser ?? 'browser'
     const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
     const page = targets.find((target) => target.type === 'page')
-    if (page === undefined) throw new Error('el navegador no tiene ninguna pestana de tipo page')
+    if (page === undefined) throw new Error('the browser has no target of type page')
     this.socket = new WebSocket(page.webSocketDebuggerUrl)
     await new Promise((resolve, reject) => {
       this.socket.addEventListener('open', () => resolve(), { once: true })
@@ -269,14 +267,14 @@ export class BrowserConnection {
     await this.session.send('Runtime.enable')
   }
 
-  /** Verifica que la conexion sigue viva y, si no, vuelve a engancharse. */
+  /** Checks that the connection is still alive and, if not, attaches again. */
   async ensureAlive() {
     if (this.session === null) return
     try {
       await this.session.send('Runtime.evaluate', { expression: '1', returnByValue: true }, 4000)
       return
     } catch {
-      /* la pestana se cerro o navego a otro proceso: reenganchar */
+      /* the tab closed or navigated into another process: re-attach */
     }
     try {
       this.socket?.close()
@@ -289,8 +287,8 @@ export class BrowserConnection {
   }
 
   /**
-   * Lista las pestanas abiertas.
-   * @returns pestanas con id, titulo y url.
+   * Lists the open tabs.
+   * @returns tabs with id, title and url.
    */
   async listTargets() {
     const targets = await (await fetch(`http://127.0.0.1:${this.port}/json/list`)).json()
@@ -300,13 +298,13 @@ export class BrowserConnection {
   }
 
   /**
-   * Abre una pestana nueva y se engancha a ella.
+   * Opens a new tab and attaches to it.
    * @param url - direccion a cargar.
-   * @returns la pestana creada.
+   * @returns the created tab.
    */
   async openTab(url = 'about:blank') {
     const created = await (await fetch(`http://127.0.0.1:${this.port}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' })).json()
-    if (created?.id === undefined) throw new Error('el navegador no devolvio la pestana nueva')
+    if (created?.id === undefined) throw new Error('the browser did not return the new tab')
     try {
       this.socket?.close()
     } catch {
@@ -318,7 +316,7 @@ export class BrowserConnection {
     return { id: created.id, url: created.url ?? url }
   }
 
-  /** Cierra el navegador lanzado por nosotros y limpia el perfil temporal. */
+  /** Closes the browser we launched and cleans up the temporary profile. */
   stop() {
     try {
       this.socket?.close()
@@ -329,14 +327,13 @@ export class BrowserConnection {
     this.session = null
     if (this.child !== null) {
       const pid = this.child.pid
-      // Chrome es un arbol de procesos: matar solo la raiz deja vivos a los
-      // hijos (renderers, GPU, utilidades), que siguen ocupando el perfil. El
-      // `/T` cierra el arbol entero y el `/F` evita que un hijo atascado
-      // sobreviva al intento.
+      // Chrome is a process tree: killing only the root leaves the children
+      // (renderers, GPU, utilities) alive, still holding the profile. `/T` closes
+      // the whole tree and `/F` keeps a stuck child from surviving the attempt.
       try {
         spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: 15000 })
       } catch {
-        /* taskkill no disponible: se intenta el cierre normal */
+        /* taskkill unavailable: fall back to a normal close */
       }
       try {
         this.child.kill()
@@ -348,25 +345,40 @@ export class BrowserConnection {
     if (this.tempProfile !== null) {
       const profile = this.tempProfile
       this.tempProfile = null
-      try {
-        rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 250 })
-      } catch {
-        // El sistema puede tardar en soltar el perfil tras matar el arbol; no es
-        // un error, y el temporizador no impide que el proceso salga.
+      // The system may take a few seconds to release the profile after the tree is
+      // killed, so this retries synchronously before giving up: an async timer
+      // would be cut short when the host process exits, which is exactly how a
+      // profile directory was left behind in testing.
+      if (!removeProfile(profile)) {
         try {
           setTimeout(() => {
-            try {
-              rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 })
-            } catch {
-              /* queda como basura inerte en el temporal */
-            }
-          }, 2000).unref?.()
+            removeProfile(profile)
+          }, 3000).unref?.()
         } catch {
-          /* sin temporizador: queda la basura inerte */
+          /* no timer available: the inert litter stays */
         }
       }
     }
   }
+}
+
+/**
+ * Removes a temporary Chrome profile, retrying while the system still holds it.
+ *
+ * @param profile - absolute profile path.
+ * @returns whether the directory is gone.
+ */
+function removeProfile(profile) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 2, retryDelay: 200 })
+      if (!existsSync(profile)) return true
+    } catch {
+      /* still locked: wait and retry */
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400)
+  }
+  return !existsSync(profile)
 }
 
 export { DEFAULT_PORTS }

@@ -1,169 +1,58 @@
 # dsh-tool-computer
 
-**Computer use para DeepSeek Harness**, en dos vías:
+**Computer use for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH)**, on two
+fronts:
 
-- `browser` — control de Chrome o Edge por el protocolo de depuración, **sin
-  dependencias**. La vía rápida y determinista para cualquier tarea web.
-- `computer` — control del escritorio de Windows: captura con visión real, clic,
-  teclado y ventanas. Para lo que salga del navegador.
+- **`browser`** — drives Chrome or Edge over the DevTools Protocol. **Zero
+  dependencies.** The fast, deterministic path for anything that happens in a web
+  page.
+- **`computer`** — drives the Windows desktop: screenshots that actually reach the
+  model, mouse, keyboard, scroll and window control. For everything outside the
+  browser.
 
-Escrito para resolver un caso concreto: que el agente pueda mirar y actuar, con la
-imagen llegando al modelo de verdad, y sin pagar una inferencia visual por cada
-clic.
+Built to solve one concrete problem: let an agent *look* and *act*, with the image
+genuinely arriving at the model, and without paying a visual inference for every
+click.
 
-## Por qué dos vías
+> Status: works and is tested against real Chrome and a real desktop. Windows only.
+> See [SECURITY.md](SECURITY.md) before you install it — this gives an agent control
+> of your machine.
 
-El bucle clásico *pixel-to-action* cuesta caro: capturar la pantalla entera, mandar
-la imagen al modelo, que estime coordenadas, mover el ratón, esperar, y repetir.
-Son segundos por paso, y el clic queda aproximado.
+## Why two paths
 
-Cuando la tarea vive en el navegador no hace falta adivinar nada: la página ya dice
-qué elementos tiene, cómo se llaman y dónde están. Medido en un equipo real:
+The classic *pixel-to-action* loop is expensive: capture the whole screen, send the
+image to the model, have it guess coordinates, move the mouse, wait, repeat. That is
+seconds per step, and every click is approximate.
 
-| Operación | Vía `browser` (CDP) | Bucle de píxeles |
+When the task lives in a browser you do not have to guess anything: the page already
+says which elements it has, what they are called and where they are. Measured on a
+real machine, same browser:
+
+| Operation | `browser` (CDP) | Pixel loop |
 | --- | --- | --- |
-| Leer la página entera | **28 ms** | 0.5–1 s + inferencia visual |
-| Hacer clic en un elemento | **139 ms** | 2–6 s (estimar coordenadas) |
-| Leer un dato exacto | **9 ms** | inferencia visual |
-| Escribir en un campo | **152 ms** | 2–6 s |
-| Captura de la pestaña | **165 ms** | 0.5–1 s |
-| Navegar | 2.9–3.3 s | 2.9–3.3 s (es la red) |
+| Read the whole page | **28 ms** | 0.5–1 s + visual inference |
+| Click an element | **139 ms** | 2–6 s (coordinate guessing) |
+| Read an exact value | **9 ms** | visual inference |
+| Type into a field | **152 ms** | 2–6 s |
+| Screenshot the tab | **165 ms** | 0.5–1 s |
+| Navigate | 2.9–3.3 s | 2.9–3.3 s (that is the network) |
 
-Y no es solo velocidad: un clic por referencia **no falla** por un píxel de
-diferencia, ni por un cambio de resolución, ni porque aparezca una barra.
+It is not only speed: a click by reference **cannot** miss by a pixel, or break on a
+different screen resolution, or land on a cookie banner that appeared meanwhile.
 
-## Las tres vías, y por qué se eligen por tarea
+## Install
 
-El navegador no se conecta de una sola forma, porque el compartimento cambia
-según lo que estés haciendo. La herramienta tiene tres vías y **el agente no las
-adivina**: si una llamada no declara cuál usar, falla y pide preguntarte.
+Requirements: Windows, Node 22+ (for the built-in `WebSocket`), and DeepSeek
+Harness with a profile.
 
-| Vía | Qué hace | Para qué |
-| --- | --- | --- |
-| `perfil-propio` | Chrome con un perfil nuevo y aislado; no toca tus pestañas ni sesiones | Trabajo normal. Hay que iniciar sesión en la plataforma una vez |
-| `perfil-real` | Tu Chrome de siempre, con tus sesiones abiertas | Cuando ya estás dentro y no quieres volver a autenticarte. Exige cerrar Chrome antes |
-| `sin-navegador` | No toca el navegador en absoluto | Banca, trámites personales, cualquier cosa que no quieras exponer |
+1. Copy the `computer/` folder into your DSH profile:
 
-La elección **no se hereda** entre tareas: cada llamada lleva su `mode`, y el
-plugin cierra la conexión anterior si la vía cambia, para no reutilizar un
-navegador abierto con otro perfil. Si le pides al agente algo con el navegador y
-no sabe qué vía quieres, te lo pregunta con las tres opciones y sus consecuencias.
+   ```sh
+   cp -r computer "$DSH_HOME/profiles/<profile>/plugins/computer"
+   ```
 
-Si prefieres no responder cada vez, fija una vía en la configuración:
-
-```yaml
-config:
-  browserMode: perfil-propio   # o perfil-real, o sin-navegador
-```
-
-Y para la vía del perfil real, si tu Chrome no está en la ruta por defecto:
-
-```yaml
-config:
-  browserMode: perfil-real
-  browserProfileDir: "C:\\Users\\tu-usuario\\AppData\\Local\\Chrome\\User Data"
-```
-
-## Herramienta `browser` (9 acciones)
-
-| Acción | Qué hace |
-| --- | --- |
-| `snapshot` | Lee la página: elementos interactivos indexados (`e1`, `e2`…) con su texto, estado y foco, más el texto visible |
-| `click` | Clic en un elemento por `ref` del snapshot o por selector CSS |
-| `type` | Escribe en un campo, con opción de vaciarlo y de pulsar Enter |
-| `press` | Pulsa una tecla, con modificadores |
-| `navigate` | Va a una dirección y devuelve el snapshot |
-| `evaluate` | Ejecuta JavaScript y devuelve el resultado: para leer datos exactos |
-| `screenshot` | Captura la pestaña como imagen, cuando la vista importa |
-| `wait` | Espera a que aparezca un texto o un selector |
-| `tabs` | Lista las pestañas abiertas |
-
-Todas llevan el parámetro `mode`. El flujo es: `snapshot` → leer las referencias →
-`click`/`type` con ese `ref` → `snapshot` nuevo. El modelo nunca inventa un
-selector ni una coordenada.
-
-Se conecta a un navegador que ya tenga depuración remota, o lanza uno. Si un
-puerto está ocupado por una instancia que no responde, prueba el siguiente en vez
-de quedarse clavado, y si el perfil real está en uso lo dice al instante (y cómo
-seguir) en lugar de esperar a un puerto que no va a llegar.
-
-## Herramienta `computer` (16 acciones)
-
-| Acción | Qué hace |
-| --- | --- |
-| `screenshot` | Captura la pantalla y devuelve **la imagen al modelo** |
-| `click`, `double_click`, `right_click` | Clic en x,y |
-| `move`, `drag` | Mover el cursor, arrastrar |
-| `scroll` | Rueda del ratón |
-| `type` | Escribe texto en la ventana con foco |
-| `key`, `keys` | Una tecla, o una combinación (`["ctrl","shift","s"]`) |
-| `cursor` | Dónde está el cursor y qué tiene el foco |
-| `windows` | Enumera ventanas: título, proceso, PID, rectángulo, foco |
-| `focus_window`, `close_window` | Traer al frente, pedir cerrar |
-| `start_app` | Abrir una app de una lista cerrada |
-| `wait` | Esperar a que la interfaz se asiente |
-
-Las coordenadas se pueden dar en píxeles de pantalla (`space: "screen"`) o
-**medidas en la captura que el modelo acaba de ver** (`space: "image"`, por
-defecto): el plugin guarda el mapeo imagen→pantalla y traduce.
-
-## Cómo llega la imagen al modelo
-
-Es la parte que más cuesta acertar. El registro de herramientas de DSH valida el
-valor que devuelve `execute` contra `output.schema`, y lo hace en serio: con
-`additionalProperties: false`, meter el contenido dentro del valor lo invalida
-entero (`INVALID_TOOL_OUTPUT`) y el modelo no recibe nada — ni texto ni imagen.
-
-El camino correcto es `finalizeContent`: el valor sale limpio (`{ action, result }`),
-se valida, y el contenido —bloques de texto e imagen— se adjunta después:
-
-```js
-const pendingContent = new WeakMap()
-
-// en execute(): publica la captura y registra sus bloques
-const reference = await ctx.attachments.saveImage({ data, mediaType: 'image/png', name })
-pendingContent.set(exec, [
-  { type: 'text', text: 'captura frame 7: 1600x664 px ...' },
-  { type: 'image', attachment: reference },
-])
-return { action, result }
-
-// en la definición de la herramienta
-finalizeContent(exec) {
-  const content = pendingContent.get(exec)
-  pendingContent.delete(exec)
-  return content
-}
-```
-
-El runtime adjunta esa imagen al contexto del modelo en el mismo turno, así que
-la ve en el paso siguiente.
-
-## Rendimiento del escritorio
-
-Cada acción de `computer` cuesta lo que cuesta arrancar PowerShell… salvo que no
-arranques uno por acción. Medido en un equipo con dos monitores a 5206x2160:
-
-| | Por acción |
-| --- | --- |
-| Proceso nuevo por acción | 8.6 – 10.4 s |
-| **Servidor persistente** (por defecto) | **12 ms** tras el arranque |
-
-El runner tiene dos modos y comparte la misma lógica (`Invoke-Request`):
-
-- **Servidor** (`-Server`): un PowerShell vivo por sesión, una petición JSON por
-  línea, respuesta JSON por línea.
-- **Proceso único**: el respaldo, y el modo cómodo para probar a mano.
-
-El plugin arranca el servidor en segundo plano al montarse, lo cierra tras 10
-minutos sin uso, lo cierra con el proceso de DSH, y **cae al modo de proceso único
-si el servidor falla, se cae o no responde** en vez de romper la acción.
-
-## Instalación
-
-1. Copia esta carpeta a `$DSH_HOME/profiles/<perfil>/plugins/computer/`.
-2. Añade la fila al parche del perfil
-   (`$DSH_HOME/profiles/<perfil>/cordis.patch.yml`):
+2. Add the plugin row to the profile patch
+   (`$DSH_HOME/profiles/<profile>/cordis.patch.yml`):
 
    ```yaml
    - insert:
@@ -174,65 +63,187 @@ si el servidor falla, se cae o no responde** en vez de romper la acción.
            maxHeight: 1000
    ```
 
-   `name` es relativo a la carpeta del perfil, porque el `baseUrl` del loader
-   apunta ahí. Desde una capa `--patch` de otro sitio, usa una URL `file:///...`.
+   `name` is relative to the profile folder, because the loader's `baseUrl` points
+   there. From a `--patch` layer elsewhere, use a `file:///...` URL instead.
 
-3. Reinicia DSH: el árbol de plugins se compone al arrancar.
+3. Restart DSH: the plugin tree is composed at startup.
 
-El plugin **no necesita dependencias**: el `node_modules` de un perfil está vacío,
-así que implementa a mano el `Config['~standard'].validate` que Cordis consume y
-registra la herramienta con objetos planos. No importa nada de `@deepseek-ai/*`.
+There is nothing to install: a DSH profile's `node_modules` is empty, so the plugin
+imports nothing from `@deepseek-ai/*`. It implements by hand the
+`Config['~standard'].validate` that Cordis consumes, and registers its tools with
+plain objects.
 
-## Requisitos y límites
+## Configuration
 
-- **Windows.** Usa GDI para capturar y `SendInput`/`SetCursorPos` para la entrada.
-- **El proceso que aloja el plugin debe poder tocar el escritorio.** En DSH, las
-  llamadas de shell se confinan con un token restringido de baja integridad, y ese
-  token **no puede** mover el cursor ni inyectar entrada (comprobado: dentro del
-  sandbox `SetCursorPos` devuelve `False`). El plugin ejecuta el runner desde el
-  proceso anfitrión, no a través del shell confinado. Esto es una decisión
-  consciente y está en [SECURITY.md](SECURITY.md).
-- **El modelo activo debe aceptar imágenes**, o `screenshot` se rechaza con un
-  mensaje claro. Es el mismo requisito que la herramienta `read_image` de DSH.
-- **Multi-monitor**: `screenshot` captura el escritorio virtual completo. La
-  captura normaliza a un máximo de píxeles, y el mapeo de coordenadas se ajusta
-  solo.
-- **Capturar la pantalla captura todo lo que haya en ella.** Si lo que quieres
-  supervisar está en una ventana, captura esa ventana y no el escritorio entero.
+Every option is optional.
 
-## Antes de publicar
-
-El repositorio está listo para subirse tal cual. Dos detalles que quizá quieras
-personalizar, ninguno obligatorio:
-
-- **La licencia** dice `Copyright (c) 2026 dsh-tool-computer contributors`. Si
-  prefieres tu nombre, cambia esa línea en [LICENSE](LICENSE).
-- **El idioma.** El código, los comentarios y las descripciones de las acciones
-  están en español, porque el proyecto nació para un uso concreto en español. Para
-  una audiencia internacional conviene traducir las descripciones de las acciones
-  —son texto, no lógica— y los comentarios.
-
-Para comprobar que sigue todo en orden antes de publicar:
-
-```sh
-node scripts/audit-repo.mjs .
-node scripts/browser-integration.mjs
+```yaml
+config:
+  maxWidth: 1600                 # screenshot width cap (px)
+  maxHeight: 1000                # screenshot height cap (px)
+  timeoutMs: 30000               # per-call budget
+  captureAfterActions: false     # attach a fresh screenshot after click/type/key
+  persistentShell: true          # keep one warm PowerShell per session (see below)
+  requireApprovalFor: []         # actions that must ask the user first
+  browserMode: null              # pin a browser mode, or leave null to ask per task
+  browserProfileDir: null        # Chrome user-data dir for the "real profile" mode
 ```
 
-El primero verifica que no haya rutas de una máquina concreta, secretos, ni
-importaciones fuera de Node; el segundo lanza un navegador de verdad y prueba las
-nueve acciones de `browser`, cerrando el navegador al terminar incluso si algo
-falla.
+## Tool `browser` — 9 actions
 
-## Otros proyectos
+| Action | What it does |
+| --- | --- |
+| `snapshot` | Reads the page: interactive elements indexed (`e1`, `e2`...) with their label, state and focus, plus the visible text |
+| `click` | Clicks an element by `ref` from the snapshot, or by CSS selector |
+| `type` | Types into a field, optionally clearing it first and pressing Enter |
+| `press` | Presses a key, with modifiers |
+| `navigate` | Goes to a URL and returns the snapshot |
+| `evaluate` | Runs JavaScript and returns the result: for exact data |
+| `screenshot` | Captures the tab as an image, when the visual matters |
+| `wait` | Waits for a text or a selector to appear |
+| `tabs` | Lists open tabs |
 
-Si eres nuevo en computer use, mira primero la
-[herramienta de Anthropic](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool):
-es la referencia de comportamiento y su diseño de acciones por despachador
-(`action` + parámetros) es el que sigue esta herramienta. Aquí no hay código suyo
-—no publica implementación— y tampoco se reproduce su documentación; ver
+The flow is: `snapshot` -> read the references -> `click`/`type` with that `ref` ->
+new `snapshot`. The model never invents a selector or a coordinate.
+
+### The three browser modes, chosen per task
+
+The browser does not connect one single way, because the compartment changes with
+what you are doing. **The agent does not guess which mode to use**: a call that does
+not declare one fails, and asks the model to ask you.
+
+| Mode | What it does | When |
+| --- | --- | --- |
+| `perfil-propio` | Chrome with a fresh, isolated profile; touches none of your tabs or sessions | Day-to-day work. Log into the site once |
+| `perfil-real` | Your everyday Chrome, with your sessions already open | When you are already logged in. Requires closing Chrome first |
+| `sin-navegador` | Does not touch the browser at all | Banking, personal paperwork, anything you do not want exposed |
+
+The choice **is not inherited** between tasks: every call carries its own `mode`, and
+the plugin closes the previous connection when the mode changes, so it cannot reuse a
+browser opened with a different profile. To stop being asked, pin one:
+
+```yaml
+config:
+  browserMode: perfil-propio
+```
+
+If the real profile is in use, the plugin says so immediately (and what to do) with
+an instant lock-file check, instead of waiting 45 seconds for a port that will never
+answer.
+
+## Tool `computer` — 16 actions
+
+| Action | What it does |
+| --- | --- |
+| `screenshot` | Captures the screen and returns **the image to the model** |
+| `click`, `double_click`, `right_click` | Clicks at x,y |
+| `move`, `drag` | Moves the cursor, drags |
+| `scroll` | Mouse wheel |
+| `type` | Types into the focused window |
+| `key`, `keys` | One key, or a combination (`["ctrl","shift","s"]`) |
+| `cursor` | Where the cursor is and what has focus |
+| `windows` | Lists windows: title, process, PID, rect, focus |
+| `focus_window`, `close_window` | Bring to front, ask to close |
+| `start_app` | Opens an app from a closed list |
+| `wait` | Waits for the UI to settle |
+
+Coordinates can be absolute screen pixels (`space: "screen"`) or **measured on the
+screenshot the model just looked at** (`space: "image"`, the default): the plugin
+stores the image-to-screen mapping and translates.
+
+## How the image reaches the model
+
+This is the part that is easy to get wrong. The DSH tool registry validates the value
+returned by `execute` against `output.schema`, and it means it: with
+`additionalProperties: false`, putting the content inside the value invalidates the
+whole result (`INVALID_TOOL_OUTPUT`) and the model receives nothing — neither text nor
+image.
+
+The correct path is `finalizeContent`: the value stays clean (`{ action, result }`),
+gets validated, and the content — text and image blocks — is attached afterwards:
+
+```js
+const pendingContent = new WeakMap()
+
+// in execute(): publish the capture and record its blocks
+const reference = await ctx.attachments.saveImage({ data, mediaType: 'image/png', name })
+pendingContent.set(exec, [
+  { type: 'text', text: 'screenshot frame 7: 1600x664 px ...' },
+  { type: 'image', attachment: reference },
+])
+return { action, result }
+
+// in the tool definition
+finalizeContent(exec) {
+  const content = pendingContent.get(exec)
+  pendingContent.delete(exec)
+  return content
+}
+```
+
+The runtime attaches that image to the model's context in the same turn, so it sees it
+on the next step. Verified end to end: a unique token typed on screen was read back
+from the screenshot alone — see [docs/vision-proof.png](docs/vision-proof.png).
+
+## Desktop performance
+
+Each `computer` action costs what starting PowerShell costs... unless you stop
+starting one per action. Measured with two monitors at 5206x2160:
+
+| | Per action |
+| --- | --- |
+| New process per action | 8.6 – 10.4 s |
+| **Persistent server** (default) | **12 ms** after warm-up |
+
+The runner has two modes sharing one code path (`Invoke-Request`):
+
+- **Server** (`-Server`): one live PowerShell per session, one JSON request per line,
+  one JSON response per line.
+- **Single process**: the fallback, and the convenient mode for testing by hand.
+
+The plugin starts the server in the background when it mounts, closes it after 10
+minutes idle, closes it with the DSH process, and **falls back to single-process mode
+if the server fails, dies or stops answering** instead of breaking the action.
+
+## Requirements and limits
+
+- **Windows.** Uses GDI to capture and `SendInput`/`SetCursorPos` for input.
+- **The process hosting the plugin must be able to touch the desktop.** In DSH, shell
+  calls are confined with a low-integrity restricted token, and that token **cannot**
+  move the cursor or inject input (verified: inside the sandbox `SetCursorPos` returns
+  `False`). The plugin runs its runner from the host process, not through the confined
+  shell. This is a deliberate decision, explained in [SECURITY.md](SECURITY.md).
+- **The active model must accept images**, or `screenshot` is refused with a clear
+  message. Same requirement as DSH's own `read_image` tool.
+- **Multi-monitor**: `screenshot` captures the whole virtual desktop. The capture is
+  normalized to a pixel budget, and the coordinate mapping adapts.
+- **Capturing the screen captures everything on it.** If what you want to supervise
+  lives in one window, capture that window rather than the whole desktop.
+
+## Development
+
+```sh
+node scripts/audit-repo.mjs .          # no machine paths, no secrets, no non-Node imports
+node scripts/browser-integration.mjs   # real Chrome, 9 browser actions, cleans up after itself
+```
+
+`audit-repo.mjs` is the check that keeps this repository safe to publish: it fails if a
+path from the author's machine, a credential, or an import outside Node slips in.
+`browser-integration.mjs` launches a throwaway browser and asserts it leaves **zero**
+processes behind — a bug this project shipped once and fixed with a process-tree kill.
+
+## Credits and prior art
+
+If you are new to computer use, read Anthropic's
+[computer use tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool)
+first: it is the behavioural reference, and its action-dispatcher design (`action` plus
+parameters) is the one this project follows. There is no code of theirs here — they do
+not publish an implementation — and none of their documentation is reproduced; see
 [NOTICE.md](NOTICE.md).
 
-## Licencia
+The CDP approach follows the same reasoning as browser automation projects such as the
+accessibility-tree readers: read the structure, not the pixels.
 
-MIT. Ver [LICENSE](LICENSE).
+## License
+
+MIT. See [LICENSE](LICENSE).

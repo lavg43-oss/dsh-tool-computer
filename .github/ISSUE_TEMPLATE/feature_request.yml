@@ -1,0 +1,45 @@
+name: Feature or improvement
+description: A new action, a better snapshot, documentation, or a port to another platform.
+title: "[idea] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that the tool does not let you do today? Concrete tasks beat abstract wishes.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: An action, a parameter, a different default. It is fine to describe it loosely.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which half
+      options:
+        - browser tool (CDP)
+        - computer tool (screenshot, mouse, keyboard)
+        - the PowerShell runner or the persistent server
+        - installation or configuration
+        - documentation
+        - another platform (macOS, Linux)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Two things this project does not trade away. Check that your idea fits.
+      options:
+        - label: It works without adding a runtime dependency (Node builtins and this repository only).
+          required: true
+        - label: It does not make the agent act without the user being able to see what it is doing.
+          required: true

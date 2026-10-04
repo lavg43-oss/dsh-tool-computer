@@ -208,6 +208,8 @@ if the server fails, dies or stops answering** instead of breaking the action.
 ## Requirements and limits
 
 - **Windows.** Uses GDI to capture and `SendInput`/`SetCursorPos` for input.
+- **Node 22 or newer**, for the built-in `WebSocket` the browser tool speaks CDP
+  over. No package is installed at any point.
 - **The process hosting the plugin must be able to touch the desktop.** In DSH, shell
   calls are confined with a low-integrity restricted token, and that token **cannot**
   move the cursor or inject input (verified: inside the sandbox `SetCursorPos` returns
@@ -219,6 +221,22 @@ if the server fails, dies or stops answering** instead of breaking the action.
   normalized to a pixel budget, and the coordinate mapping adapts.
 - **Capturing the screen captures everything on it.** If what you want to supervise
   lives in one window, capture that window rather than the whole desktop.
+
+## Contributing
+
+Bug reports and improvements are welcome, especially from setups other than the one
+this was built on — it talks to GDI, `SendInput`, Chrome's DevTools Protocol and a DSH
+profile, and failures tend to be specific to one of those.
+
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) first: it lists the two checks to run before
+  a pull request, the house style, and the two constraints worth knowing before you
+  design anything.
+- [Open an issue](https://github.com/lavg43-oss/dsh-tool-computer/issues/new/choose) —
+  there are forms for bugs and for ideas, and the bug form asks for the environment
+  details that actually matter.
+- If you are changing behaviour, please add or adjust a check in `scripts/`. The
+  repository's habit is that a claim about cleanup or correctness is asserted by a
+  script, not by a comment.
 
 ## Development
 

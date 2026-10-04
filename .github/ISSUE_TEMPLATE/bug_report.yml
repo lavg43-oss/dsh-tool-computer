@@ -1,0 +1,102 @@
+name: Bug report
+description: Something did not work: a browser action, a desktop action, the cleanup, the installation.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please do not paste credentials, tokens, or
+        screenshots of anything private. Logs and error messages are enough.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you asked for, what you expected, and what you got instead.
+      placeholder: |
+        I asked the agent to read the page. It called browser snapshot with
+        mode own-profile and the tool answered...
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: The exact call
+      description: The tool call (action and arguments) or the command you ran. Copy the error message as it appeared.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which half
+      options:
+        - browser tool (CDP)
+        - computer tool (screenshot, mouse, keyboard)
+        - the PowerShell runner or the persistent server
+        - installation in a DSH profile
+        - the repository scripts (audit, integration test)
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Run `winver`, or paste the output of `[System.Environment]::OSVersion.VersionString`.
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      description: Only for browser-tool issues. Chrome or Edge version from `chrome://version`.
+    validations:
+      required: false
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: The Node that runs DSH, from `node --version`. Node 22 or newer is required for the built-in WebSocket.
+    validations:
+      required: true
+
+  - type: input
+    id: dsh
+    attributes:
+      label: DeepSeek Harness version
+      description: The version shown by DSH, or the folder name under `%LOCALAPPDATA%\Programs\DeepSeek Harness`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Browser mode in use
+      description: Only for browser-tool issues.
+      options:
+        - not applicable
+        - own-profile
+        - real-profile
+        - no-browser
+    validations:
+      required: false
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        Worth including when it applies:
+        - `node scripts/browser-integration.mjs` and its last lines
+        - whether `node scripts/audit-repo.mjs .` passes
+        - the output of `Get-Process chrome | Measure-Object` if you suspect leftover processes
+        - the runner by hand: `'{"action":"cursor"}' | powershell -NoProfile -File computer/lib/computer.ps1`
+      render: text
+    validations:
+      required: false

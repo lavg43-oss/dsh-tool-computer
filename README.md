@@ -73,6 +73,72 @@ imports nothing from `@deepseek-ai/*`. It implements by hand the
 `Config['~standard'].validate` that Cordis consumes, and registers its tools with
 plain objects.
 
+## If it breaks, fix it without the agent
+
+This section exists because of a real outage, and because of an uncomfortable
+property of this whole category of tool: **when a plugin breaks the session, the
+agent cannot repair it.** Tool schemas are sent with every request, so an invalid
+one fails *every* turn — including the turn that would run the fix. The agent is
+not a recovery path. You are.
+
+So the plugin ships a check that does not depend on the plugin working, and a
+recovery procedure short enough to do from a text editor.
+
+### Check it by hand, any time
+
+```sh
+node "$DSH_HOME/profiles/<profile>/plugins/computer/lib/health-check.js"
+```
+
+It exits `0` and prints `health check passed` when the plugin is safe to load. It
+exits `1` and lists exactly what is wrong when it is not — and tells you how to
+disable it. It builds the tool schemas and inspects them the way a strict provider
+validator would: every array needs an object `items` with a type, `required` must
+be an array of names, no union types, every object needs `additionalProperties`.
+It needs no network, writes nothing, and starts nothing.
+
+### Disable it, which always works
+
+In `$DSH_HOME/profiles/<profile>/cordis.patch.yml`, find the `tool-computer` row
+and set `disabled: true`:
+
+```yaml
+- insert:
+    - id: tool-computer
+      name: ./plugins/computer/index.js
+      disabled: true          # <- this line
+      config:
+        maxWidth: 1600
+```
+
+Then restart DSH.
+
+Two things to watch, both learned the hard way:
+
+- **Indentation matters.** `name`, `disabled` and `config` must be indented under
+  `- id:`, aligned with each other. If they are not, the patch is malformed and the
+  plugin keeps loading — a hand-edit that "did not work" is usually this.
+- **A local plugin has no version to roll back to.** It is a file: every restart
+  loads whatever is on disk right now. There is no previously-working build to
+  return to, which is why `disabled: true` is the recovery lever rather than a
+  downgrade.
+
+### Why the schemas are the fragile part
+
+The provider validates the whole tool list before running anything, so one bad
+node rejects all of it. And DSH validates the value a tool *returns* against
+`output.schema` — never the parameters it declares — so a malformed parameter
+schema produces no local error at all. It surfaces as
+`Invalid schema for function 'x': ...`, on every turn.
+
+Two scripts exist for that reason and are meant to be run before shipping any
+change to a tool:
+
+```sh
+node scripts/schema-guard.mjs          # asserts the published schema shape
+node scripts/inspect-wire-schema.mjs   # prints exactly what goes on the wire
+```
+
 ## Configuration
 
 Every option is optional.

@@ -697,15 +697,15 @@ export function apply(ctx, config) {
   let lastFrame = 0
 
   const integer = (value, label) => {
-    if (!Number.isInteger(value)) throw new Error(`computer: ${label} debe ser un entero; recibi ${JSON.stringify(value)}`)
+    if (!Number.isInteger(value)) throw new Error(`computer: ${label} must be an integer; received ${JSON.stringify(value)}`)
     return value
   }
 
   /**
    * Translates an action coordinate into absolute virtual-desktop pixels.
-   * @param args - argumentos de la llamada.
+   * @param args - call arguments.
    * @param record - most recent captured frame, when there is one.
-   * @returns coordenadas absolutas.
+   * @returns absolute coordinates.
    */
   function toScreen(args, record) {
     const x = integer(args.x, 'x')

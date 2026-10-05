@@ -659,10 +659,9 @@ export function apply(ctx, config) {
     }
   }
 
-  const actionSchema = {
-    type: 'object',
-    additionalProperties: false,
-    properties: {
+  // Compiled to raw JSON Schema: the author-form `required: true` per property
+  // would otherwise reach the provider as a boolean where an array is expected.
+  const actionSchema = compileParameters({
       action: {
         type: 'string',
         enum: ACTIONS,
@@ -691,8 +690,7 @@ export function apply(ctx, config) {
         type: 'boolean',
         description: 'Requests a fresh capture in the same call, useful to see the effect of click/type/key without spending another turn.',
       },
-    },
-  }
+  })
 
   /** Image-to-screen mapping of each capture, to translate coordinates measured on the image. */
   const frames = new Map()
@@ -829,6 +827,47 @@ export function apply(ctx, config) {
   })
 
   registerComputerTool(ctx, resolved, runNative, actionSchema)
+}
+
+/**
+ * Compiles an author-form parameter map into raw JSON Schema.
+ *
+ * The action tables declare `required: true` per property, which is the author
+ * shape DSH's own `defineTool` compiles. This plugin registers its tools
+ * directly, so it has to do that compilation itself: sending the author shape
+ * straight to the provider puts a boolean where the schema wants an array of
+ * names, and the provider rejects the whole tool list — every turn fails with
+ * `Invalid schema for function 'x': true is not of type "array"`. That is not a
+ * degraded action, it is a dead session.
+ *
+ * Two deliberate choices:
+ *
+ * 1. The author-only `required` key is stripped from every property, so nothing
+ *    boolean survives on the wire.
+ * 2. Only `alwaysRequired` (just `action`) is required at the root. A dispatcher's
+ *    parameter map carries every action's fields at once, so requiring all of them
+ *    would demand `x` and `y` for a screenshot and `app` for a click. Each action's
+ *    own requirements are enforced at execution time, with a clear error, and its
+ *    description says what it needs.
+ *
+ * @param properties - author-form parameter map.
+ * @param alwaysRequired - parameter names required for every call.
+ * @returns a raw JSON Schema object node.
+ */
+function compileParameters(properties, alwaysRequired = ['action']) {
+  const compiled = {}
+  for (const [name, field] of Object.entries(properties)) {
+    const { required, ...rest } = field
+    void required
+    compiled[name] = rest
+  }
+  const required = alwaysRequired.filter((name) => Object.hasOwn(compiled, name))
+  return {
+    type: 'object',
+    additionalProperties: false,
+    properties: compiled,
+    ...required.length > 0 ? { required } : {},
+  }
 }
 
 /**
@@ -989,9 +1028,5 @@ function browserParameters() {
       if (properties[key] === undefined) properties[key] = field
     }
   }
-  return {
-    type: 'object',
-    additionalProperties: false,
-    properties,
-  }
+  return compileParameters(properties)
 }

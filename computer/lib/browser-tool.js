@@ -75,8 +75,13 @@ export const BROWSER_ACTIONS = {
       ...MODE_FIELD,
       modifiers: {
         type: 'array',
-        description: 'Modifiers held while pressing, for example ["ctrl"].',
-        items: { type: 'string', enum: ['alt', 'ctrl', 'meta', 'shift'] },
+        description: 'Modifiers held while pressing: any of "alt", "ctrl", "meta", "shift", for example ["ctrl"].',
+        // Deliberately no nested `enum` here. A constrained `items` schema is a
+        // construct some strict provider-side validators reject, and a rejected
+        // schema makes every turn fail, not just this action. The allowed values
+        // are in the description instead: the model reads that, and nothing on the
+        // wire can break.
+        items: { type: 'string' },
       },
     },
     required: ['key'],

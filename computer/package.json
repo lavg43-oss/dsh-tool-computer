@@ -2,10 +2,15 @@
   "name": "dsh-tool-computer",
   "version": "0.1.0",
   "private": true,
-  "description": "Computer use para DSH: captura de pantalla con vision, clic, teclado y ventanas en Windows.",
+  "description": "Computer use for DeepSeek Harness: browser control over CDP and Windows desktop control with vision.",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js"
-  }
+  },
+  "dependencies": {},
+  "scripts": {
+    "test": "node ../../scripts/schema-guard.mjs"
+  },
+  "//": "Do NOT run npm install or pnpm install in this folder. The plugin has no dependencies and must stay that way. npm drops a package-lock.json and a node_modules here, and a later `npm install <anything>` deletes the type:module line, after which Node reads index.js as CommonJS and the plugin refuses to load with \"Unexpected token 'export'\". Check it with: node ../../scripts/schema-guard.mjs"
 }

@@ -41,6 +41,27 @@ node --check computer/index.js
 powershell -NoProfile -Command "$e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('computer/lib/computer.ps1',[ref]$null,[ref]$e); $e.Count"
 ```
 
+## Two ways to break every turn, not just one action
+
+Both of these have happened in this project, so they are worth more than a glance.
+
+**1. An invalid tool schema.** The provider validates the whole tool list before
+running anything, so one malformed node rejects all of it and every turn fails
+with a message like `Invalid schema for function 'browser': true is not of type
+"array"`. The subtle part: DSH validates the value a tool *returns* against
+`output.schema`, so a bad `parameters` schema is never caught locally. The mistake
+that caused it here was sending parameters in DSH's **author form**
+(`required: true` per property, the shape `defineTool` compiles) while registering
+the tool directly, so a boolean reached a place that wanted an array of names.
+`scripts/schema-guard.mjs` now asserts the published shape; run it before and
+after touching any parameter.
+
+**2. Deleting `"type": "module"` from `computer/package.json`.** Running
+`npm install <anything>` inside `computer/` rewrites that file and drops the line.
+Node then reads `index.js` as CommonJS and the plugin refuses to load with
+`Unexpected token 'export'`. The plugin has no dependencies and must stay that
+way: never run a package manager inside that folder.
+
 ## House style
 
 - **No dependencies.** The plugin imports nothing outside Node builtins and its

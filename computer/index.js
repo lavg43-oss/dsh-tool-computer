@@ -46,6 +46,11 @@ const CONFIG_FIELDS = {
   maxHeight: integerField(1000, 240, 4096),
   typeDelayMs: integerField(8, 0, 500),
   timeoutMs: integerField(30000, 1000, 600000),
+  // How much page a snapshot returns. The `browser` tool documents these as
+  // coming from "the plugin configuration", which was not true while they were
+  // missing from the resolved config: the service always used its own defaults.
+  maxElements: integerField(60, 1, 500),
+  maxTextChars: integerField(2500, 200, 20000),
 }
 
 /** Valid actions, duplicated here so the configuration schema knows them without depending on ACTION_SPECS. */
@@ -68,6 +73,9 @@ export const Config = {
           || key === 'persistentShell'
           || key === 'browserMode'
           || key === 'browserProfileDir'
+          || key === 'ownProfileDir'
+          || key === 'browserPorts'
+          || key === 'browserExecutable'
           || Object.hasOwn(CONFIG_FIELDS, key)
         if (!known) issues.push({ message: `unknown configuration property: ${key}`, path: [key] })
       }
@@ -79,6 +87,17 @@ export const Config = {
       }
       if (Object.hasOwn(source, 'browserProfileDir') && source.browserProfileDir !== null && typeof source.browserProfileDir !== 'string') {
         issues.push({ message: 'browserProfileDir must be a path or null', path: ['browserProfileDir'] })
+      }
+      if (Object.hasOwn(source, 'ownProfileDir') && source.ownProfileDir !== null && typeof source.ownProfileDir !== 'string') {
+        issues.push({ message: 'ownProfileDir must be a path or null', path: ['ownProfileDir'] })
+      }
+      if (Object.hasOwn(source, 'browserPorts') && source.browserPorts !== null) {
+        if (!Array.isArray(source.browserPorts) || source.browserPorts.some((port) => !Number.isSafeInteger(port) || port < 1 || port > 65535)) {
+          issues.push({ message: 'browserPorts must be a list of TCP ports', path: ['browserPorts'] })
+        }
+      }
+      if (Object.hasOwn(source, 'browserExecutable') && source.browserExecutable !== null && typeof source.browserExecutable !== 'string') {
+        issues.push({ message: 'browserExecutable must be a path or null', path: ['browserExecutable'] })
       }
       if (Object.hasOwn(source, 'captureAfterActions') && typeof source.captureAfterActions !== 'boolean') {
         issues.push({ message: 'captureAfterActions must be a boolean', path: ['captureAfterActions'] })
@@ -106,6 +125,11 @@ export const Config = {
         // With no value, the choice is asked of the user on every task.
         browserMode: ['perfil-propio', 'perfil-real', 'sin-navegador'].includes(source.browserMode) ? source.browserMode : null,
         browserProfileDir: typeof source.browserProfileDir === 'string' && source.browserProfileDir !== '' ? source.browserProfileDir : null,
+        // A stable directory for `own-profile`: set it and the isolated browser
+        // keeps its logins between tasks instead of starting from nothing.
+        ownProfileDir: typeof source.ownProfileDir === 'string' && source.ownProfileDir !== '' ? source.ownProfileDir : null,
+        browserPorts: Array.isArray(source.browserPorts) ? [...source.browserPorts] : null,
+        browserExecutable: typeof source.browserExecutable === 'string' && source.browserExecutable !== '' ? source.browserExecutable : null,
       }
       for (const [key, field] of Object.entries(CONFIG_FIELDS)) value[key] = field.coerce(source[key])
       return { value }
@@ -720,6 +744,14 @@ export function apply(ctx, config) {
     // With no mode configured, the user is asked on every task.
     browserMode: ['perfil-propio', 'perfil-real', 'sin-navegador'].includes(config.browserMode) ? config.browserMode : null,
     browserProfileDir: typeof config.browserProfileDir === 'string' && config.browserProfileDir !== '' ? config.browserProfileDir : null,
+    // Absent: `own-profile` uses a throwaway profile, exactly as it always did.
+    ownProfileDir: typeof config.ownProfileDir === 'string' && config.ownProfileDir !== '' ? config.ownProfileDir : null,
+    // These four were read by the browser service but never handed to it, so the
+    // ports, the browser path and the snapshot limits were not configurable at all.
+    browserPorts: Array.isArray(config.browserPorts) && config.browserPorts.length > 0 ? config.browserPorts : undefined,
+    browserExecutable: typeof config.browserExecutable === 'string' && config.browserExecutable !== '' ? config.browserExecutable : undefined,
+    maxElements: Number.isSafeInteger(config.maxElements) && config.maxElements > 0 ? config.maxElements : 60,
+    maxTextChars: Number.isSafeInteger(config.maxTextChars) && config.maxTextChars > 0 ? config.maxTextChars : 2500,
   }
 
   // One PowerShell per session, kept warm: paying the startup once (and in the

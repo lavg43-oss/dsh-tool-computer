@@ -31,7 +31,7 @@ export const BROWSER_MODES = [
   {
     id: 'own-profile',
     label: 'Own profile (recommended)',
-    description: 'Chrome opens with a fresh, isolated profile: it touches none of your tabs, sessions or passwords. You log into the site once.',
+    description: 'Chrome opens with an isolated profile: it touches none of your tabs, sessions or passwords. Throwaway by default; with ownProfileDir configured it is kept, so a login survives from one task to the next. You log into the site once.',
   },
   {
     id: 'real-profile',
@@ -110,11 +110,18 @@ export function resolveBrowserMode(declaredMode, config) {
     maxElements: Number.isSafeInteger(config.maxElements) && config.maxElements > 0 ? config.maxElements : 60,
     maxTextChars: Number.isSafeInteger(config.maxTextChars) && config.maxTextChars > 0 ? config.maxTextChars : 2500,
   }
-  // `own-profile` leaves userDataDir unset: cdp.js creates a temporary profile and
-  // removes it on close. `real-profile` points at the everyday profile.
-  return mode === 'real-profile'
-    ? { ...base, userDataDir: config.browserProfileDir ?? DEFAULT_USER_DATA_DIR, mode }
-    : { ...base, mode }
+  // `real-profile` points at the everyday profile. `own-profile` leaves userDataDir
+  // unset, and cdp.js then creates a temporary profile and removes it on close --
+  // unless `ownProfileDir` names a stable directory. That is what lets the isolated
+  // browser keep its logins between tasks without ever touching the everyday one.
+  if (mode === 'real-profile') {
+    return { ...base, userDataDir: config.browserProfileDir ?? DEFAULT_USER_DATA_DIR, mode }
+  }
+  const ownDir = typeof config.ownProfileDir === 'string' && config.ownProfileDir.trim() !== ''
+    ? config.ownProfileDir.trim()
+    : undefined
+  if (ownDir === undefined) return { ...base, mode }
+  return { ...base, userDataDir: ownDir, mode }
 }
 
 /** Tags and roles that count as interactive. */

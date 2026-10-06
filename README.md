@@ -153,9 +153,14 @@ config:
   requireApprovalFor: []         # actions that must ask the user first
   browserMode: null              # pin a browser mode, or leave null to ask per task
   browserProfileDir: null        # Chrome user-data dir for the "real profile" mode
+  ownProfileDir: null            # stable dir for "own profile": keeps its logins
+  browserPorts: null             # debugging ports to try (default 9222, 9223, 9224)
+  browserExecutable: null        # force a browser binary instead of auto-detecting
+  maxElements: 60                # interactive elements per snapshot (1-500)
+  maxTextChars: 2500             # visible text per snapshot (200-20000)
 ```
 
-## Tool `browser` — 9 actions
+## Tool `browser` — 11 actions
 
 | Action | What it does |
 | --- | --- |
@@ -167,6 +172,8 @@ config:
 | `evaluate` | Runs JavaScript and returns the result: for exact data |
 | `screenshot` | Captures the tab as an image, when the visual matters |
 | `wait` | Waits for a text or a selector to appear |
+| `send` | Types into a chat composer and sends it: focus, write, Enter |
+| `settle` | Waits for a streamed answer to stop changing, and returns |
 | `tabs` | Lists open tabs |
 
 The flow is: `snapshot` -> read the references -> `click`/`type` with that `ref` ->
@@ -180,7 +187,7 @@ not declare one fails, and asks the model to ask you.
 
 | Mode | What it does | When |
 | --- | --- | --- |
-| `perfil-propio` | Chrome with a fresh, isolated profile; touches none of your tabs or sessions | Day-to-day work. Log into the site once |
+| `perfil-propio` | Chrome with an isolated profile; touches none of your tabs or sessions. Throwaway unless `ownProfileDir` is set | Day-to-day work. Log into the site once; with `ownProfileDir` set, that login survives |
 | `perfil-real` | Your everyday Chrome, with your sessions already open | When you are already logged in. Requires closing Chrome first |
 | `sin-navegador` | Does not touch the browser at all | Banking, personal paperwork, anything you do not want exposed |
 

@@ -44,7 +44,7 @@ export function findBrowser(preferred) {
  * Asks a port whether a debuggable browser is behind it.
  * @param port - puerto a probar.
  * @param timeoutMs - request limit.
- * @returns la version anunciada, o undefined.
+ * @returns the announced version, or undefined.
  */
 async function probePort(port, timeoutMs = 1500) {
   try {
@@ -162,7 +162,7 @@ export class CdpSession {
    * Evaluates an expression in the page and returns its value.
    * @param expression - expresion JavaScript.
    * @param timeoutMs - limite.
-   * @returns el valor devuelto, ya deserializado.
+   * @returns the returned value, already deserialized.
    */
   async evaluate(expression, timeoutMs = 20000) {
     const result = await this.send('Runtime.evaluate', {
@@ -200,7 +200,7 @@ export class BrowserConnection {
    * an earlier session), the next one is tried before giving up: getting stuck on
    * the first port leaves the tool unusable.
    *
-   * @returns informacion de la conexion.
+   * @returns connection information.
    */
   async ensureConnected() {
     if (this.session !== null) return { reused: true, port: this.port, browser: this.browserInfo }

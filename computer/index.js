@@ -258,7 +258,7 @@ const ACTION_SPECS = {
     summary: 'Asks a window to close (sends WM_CLOSE, like the close button). Use it to dismiss dialogs.',
     parameters: {
       title: { type: 'string', description: 'Title fragment. Required when handle is not given.' },
-      handle: { type: 'integer', description: 'Handle exacto devuelto por windows. Tiene prioridad sobre title.' },
+      handle: { type: 'integer', description: 'Exact handle returned by windows. Takes precedence over title.' },
     },
     required: [],
   },
@@ -308,7 +308,7 @@ function buildDescription() {
  * PowerShell 7 may be in Program Files, in the Microsoft Store (WindowsApps) or
  * only on the PATH. `DSH_PWSH` overrides everything else.
  *
- * El orden prefiere Windows PowerShell 5.1 porque, medido en un equipo real, un
+ * The order prefers Windows PowerShell 5.1 because, measured on a real machine, a
  * fresh process takes 4.5-6.6 s with it against 9.8-18 s with the Store `pwsh`.
  * To force another interpreter, set `DSH_PWSH`.
  *
@@ -554,7 +554,7 @@ function runNativeOneShot(request, timeoutMs, signal) {
   if (parsed !== undefined && parsed.ok === true) return parsed
   if (parsed !== undefined && typeof parsed.error === 'string') throw new Error(parsed.error)
 
-  const detail = (outcome.stderr ?? '').trim() || text || `termino con estado ${outcome.status ?? 'desconocido'}`
+  const detail = (outcome.stderr ?? '').trim() || text || `exited with status ${outcome.status ?? 'unknown'}`
   throw new Error(`computer: the runner did not return JSON: ${detail.slice(0, 2000)}`)
 }
 
@@ -583,6 +583,114 @@ async function assertImageCapableRoute(ctx, exec, action) {
   if (info.inputModalities === undefined || !info.inputModalities.includes('image')) {
     throw new Error(`computer(${action}) returns an image and the active model ("${model}") does not accept one as input; pick a model with vision to use computer use`)
   }
+}
+
+/**
+ * Actions whose x,y may come from the capture's coordinate space.
+ */
+const POINTER_ACTIONS = new Set(['click', 'double_click', 'right_click', 'move', 'drag'])
+
+/**
+ * Image-to-screen mapping of recent captures.
+ *
+ * Lives at module level, not inside `apply`, because two different functions need
+ * it: tool execution and the helper that publishes a capture. Keeping it here also
+ * means the mapping survives as long as the plugin is mounted.
+ */
+const computerFrames = {
+  byFrame: new Map(),
+  last: 0,
+  /**
+   * Remembers the geometry of one capture.
+   * @param frame - frame number returned by the runner.
+   * @param location - desktop rectangle the frame covers.
+   * @param reference - published attachment reference.
+   */
+  record(frame, location, reference) {
+    this.byFrame.set(frame, { location, scale: location.width / reference.width, reference })
+    this.last = frame
+    for (const key of this.byFrame.keys()) {
+      if (key <= frame - 5) this.byFrame.delete(key)
+    }
+  },
+  /**
+   * Returns the mapping for a frame, or the most recent one.
+   * @param frame - requested frame number.
+   * @returns the mapping, or undefined when there is none.
+   */
+  get(frame) {
+    const wanted = Number.isInteger(frame) ? frame : this.last
+    return this.byFrame.get(wanted)
+  },
+  /** Forgets every mapping. */
+  clear() {
+    this.byFrame.clear()
+    this.last = 0
+  },
+}
+
+/**
+ * Validates an action coordinate.
+ * @param value - value from the model.
+ * @param label - coordinate name, for the error.
+ * @returns the same value.
+ */
+function integerCoordinate(value, label) {
+  if (!Number.isInteger(value)) throw new Error(`computer: ${label} must be an integer; received ${JSON.stringify(value)}`)
+  return value
+}
+
+/**
+ * Translates an action coordinate into absolute virtual-desktop pixels.
+ *
+ * The default space is the image, because that is where the model measured: it
+ * looks at a capture and reports pixels on that capture, and this maps them back
+ * onto the desktop through the frame's scale factor.
+ *
+ * @param args - call arguments.
+ * @param record - frame mapping, when there is one.
+ * @returns absolute coordinates.
+ */
+function toScreen(args, record) {
+  const x = integerCoordinate(args.x, 'x')
+  const y = integerCoordinate(args.y, 'y')
+  const space = args.space ?? (record === undefined ? 'screen' : 'image')
+  if (space === 'screen') return { x, y }
+  if (record === undefined) {
+    throw new Error('computer: there is no recorded capture to interpret image coordinates with; call screenshot first, or pass space="screen" with absolute pixels')
+  }
+  return {
+    x: Math.round(record.location.left + x * record.scale),
+    y: Math.round(record.location.top + y * record.scale),
+  }
+}
+
+/**
+ * Publishes a capture and builds the content blocks that carry it to the model.
+ *
+ * @param ctx - plugin context, for the attachment store.
+ * @param result - runner outcome for a capture.
+ * @param note - first line of text, saying what the capture is.
+ * @returns content blocks: one text block and the image itself.
+ */
+async function captureContent(ctx, result, note) {
+  const data = readFileSync(result.path)
+  const reference = await ctx.attachments.saveImage({
+    data,
+    mediaType: 'image/png',
+    name: `screen-${result.frame}.png`,
+  })
+  computerFrames.record(result.frame, result.screen, reference)
+  const scale = (result.screen.width / reference.width).toFixed(4)
+  const lines = [
+    note,
+    `capture frame ${result.frame}: ${reference.width}x${reference.height} px over a desktop of ${result.screen.width}x${result.screen.height} px at (${result.screen.left}, ${result.screen.top})`,
+    `to touch something you can see in the image at (px, py), pass space="image" with x=px, y=py (frame ${result.frame}); the plugin applies the factor ${scale}`,
+  ].filter((line) => typeof line === 'string' && line !== '')
+  return [
+    { type: 'text', text: lines.join('\n') },
+    { type: 'image', attachment: reference },
+  ]
 }
 
 /**
@@ -654,7 +762,7 @@ export function apply(ctx, config) {
       try {
         return runNativeOneShot(request, timeoutMs, signal)
       } catch (fallbackError) {
-        throw new Error(`${error.message}; el respaldo de proceso unico tambien fallo: ${fallbackError.message}`)
+        throw new Error(`${error.message}; the single-process fallback failed too: ${fallbackError.message}`)
       }
     }
   }
@@ -691,92 +799,6 @@ export function apply(ctx, config) {
         description: 'Requests a fresh capture in the same call, useful to see the effect of click/type/key without spending another turn.',
       },
   })
-
-  /** Image-to-screen mapping of each capture, to translate coordinates measured on the image. */
-  const frames = new Map()
-  let lastFrame = 0
-
-  const integer = (value, label) => {
-    if (!Number.isInteger(value)) throw new Error(`computer: ${label} must be an integer; received ${JSON.stringify(value)}`)
-    return value
-  }
-
-  /**
-   * Translates an action coordinate into absolute virtual-desktop pixels.
-   * @param args - call arguments.
-   * @param record - most recent captured frame, when there is one.
-   * @returns absolute coordinates.
-   */
-  function toScreen(args, record) {
-    const x = integer(args.x, 'x')
-    const y = integer(args.y, 'y')
-    const space = args.space ?? (record === undefined ? 'screen' : 'image')
-    if (space === 'screen') return { x, y }
-    if (record === undefined) {
-      throw new Error('computer: there is no recorded capture to interpret image coordinates with; call screenshot first, or pass space="screen" with absolute pixels')
-    }
-    return {
-      x: Math.round(record.location.left + x * record.scale),
-      y: Math.round(record.location.top + y * record.scale),
-    }
-  }
-
-  /**
-   * Content that will accompany each execution's validated value.
-   *
-   * The registry validates the returned value against `output.schema` with
-   * `additionalProperties: false`, so a `content` inside the value
-   * invalida entero (INVALID_TOOL_OUTPUT) y el modelo no recibe nada. El
-   * content travels separately, through `finalizeContent`, which is the pattern
-   * `read_image`: el valor se valida limpio y el contenido —imagen incluida— se
-   * attached afterwards.
-   */
-  const pendingContent = new WeakMap()
-
-  /**
-   * Records one execution's content and returns the validatable value.
-   * @param exec - execution context used as the key.
-   * @param content - content blocks (text and image).
-   * @param value - value validated against the output schema.
-   * @returns el valor validable.
-   */
-  function deliver(exec, content, value) {
-    if (Array.isArray(content) && content.length > 0) pendingContent.set(exec, content)
-    return value
-  }
-
-  /**
-   * Builds the image-bearing result from a capture outcome.
-   * @param result - runner outcome for `screenshot`.
-   * @param note - text line that accompanies the image.
-   * @returns the tool content.
-   */
-  async function captureContent(result, note) {
-    const data = readFileSync(result.path)
-    const reference = await ctx.attachments.saveImage({
-      data,
-      mediaType: 'image/png',
-      name: `screen-${result.frame}.png`,
-    })
-    frames.set(result.frame, {
-      location: result.screen,
-      scale: result.screen.width / reference.width,
-      reference,
-    })
-    lastFrame = result.frame
-    for (const key of frames.keys()) {
-      if (key <= result.frame - 5) frames.delete(key)
-    }
-    const lines = [
-      note,
-      `capture frame ${result.frame}: ${reference.width}x${reference.height} px over a desktop of ${result.screen.width}x${result.screen.height} px at (${result.screen.left}, ${result.screen.top})`,
-      `orientacion: para tocar algo que veas en la imagen en (px, py), usa space="image" con x=px, y=py (frame ${result.frame}); el plugin aplica el factor ${(result.screen.width / reference.width).toFixed(4)}`,
-    ].filter((line) => typeof line === 'string' && line !== '')
-    return [
-      { type: 'text', text: lines.join('\n') },
-      { type: 'image', attachment: reference },
-    ]
-  }
 
   /** Plain text for the actions that return no image. */
   function textOnly(value) {
@@ -891,7 +913,7 @@ function registerComputerTool(ctx, resolved, runNative, actionSchema) {
    * @param exec - execution context used as the key.
    * @param content - content blocks (text and image).
    * @param value - value validated against the output schema.
-   * @returns el valor validable.
+   * @returns the validatable value.
    */
   function deliver(exec, content, value) {
     if (Array.isArray(content) && content.length > 0) pendingComputerContent.set(exec, content)
@@ -939,6 +961,21 @@ function registerComputerTool(ctx, resolved, runNative, actionSchema) {
       const request = { action }
       applyArguments(action, args, request, resolved)
 
+      // Pointer actions may be expressed in the space of the capture the model just
+      // looked at, which is the default. Translate them onto the desktop before the
+      // runner sees them, using the frame mapping recorded by that capture.
+      if (POINTER_ACTIONS.has(action)) {
+        const record = computerFrames.get(args.frame)
+        const from = toScreen(args, record)
+        request.x = from.x
+        request.y = from.y
+        if (action === 'drag') {
+          const to = toScreen({ x: args.x2, y: args.y2, space: args.space, frame: args.frame }, record)
+          request.x2 = to.x
+          request.y2 = to.y
+        }
+      }
+
       const wantsShot = args.captureAfter === true
         || (args.captureAfter !== false && resolved.captureAfterActions && action !== 'wait' && action !== 'cursor' && action !== 'windows')
       if (wantsShot) {
@@ -949,8 +986,29 @@ function registerComputerTool(ctx, resolved, runNative, actionSchema) {
       }
 
       const outcome = await runNative(request, exec.signal)
+
+      // A screenshot IS the image, so it gets its own branch: the capture is
+      // attached even when captureAfterActions is off. Without this the runner
+      // captures and the result falls through to the text path, and the model
+      // receives a description of a picture it never sees. That happened.
+      if (action === 'screenshot') {
+        const content = await captureContent(ctx, outcome, 'screenshot of the virtual desktop')
+        return deliver(exec, content, {
+          action,
+          result: {
+            ok: true,
+            frame: outcome.frame,
+            path: outcome.path,
+            image: outcome.image,
+            screen: outcome.screen,
+            scale: outcome.scale,
+            ms: outcome.ms,
+          },
+        })
+      }
+
       if (wantsShot && outcome.screenshot !== undefined) {
-        const content = await captureContent(outcome.screenshot, `resultado de ${action}:`)
+        const content = await captureContent(ctx, outcome.screenshot, `result of ${action}:`)
         return deliver(exec, content, {
           action,
           result: {
@@ -981,7 +1039,7 @@ function applyArguments(action, args, request, resolved) {
     request.maxHeight = Number.isInteger(args.maxHeight) ? args.maxHeight : resolved.maxHeight
   }
   if (action === 'type') {
-    if (typeof args.text !== 'string' || args.text.length === 0) throw new Error('computer: type necesita text')
+    if (typeof args.text !== 'string' || args.text.length === 0) throw new Error('computer: type needs text')
     request.text = args.text
     request.delayMs = Number.isInteger(args.delayMs) ? args.delayMs : resolved.typeDelayMs
   }
@@ -991,7 +1049,7 @@ function applyArguments(action, args, request, resolved) {
   }
   if (action === 'keys') {
     const keys = Array.isArray(args.keys) ? args.keys : []
-    if (keys.length === 0) throw new Error('computer: keys necesita una lista no vacia')
+    if (keys.length === 0) throw new Error('computer: keys needs a non-empty list')
     if (keys.some((entry) => typeof entry !== 'string')) throw new Error('computer: keys accepts key names only')
     request.keys = keys
   }
@@ -1004,7 +1062,7 @@ function applyArguments(action, args, request, resolved) {
     if (Number.isInteger(args.handle)) request.handle = args.handle
   }
   if (action === 'start_app') {
-    if (typeof args.app !== 'string' || args.app.trim() === '') throw new Error('computer: start_app necesita app')
+    if (typeof args.app !== 'string' || args.app.trim() === '') throw new Error('computer: start_app needs app')
     request.app = args.app
   }
   if (action === 'wait' && Number.isInteger(args.ms)) request.ms = args.ms

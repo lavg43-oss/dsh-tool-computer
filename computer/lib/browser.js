@@ -291,7 +291,7 @@ export class BrowserService {
    * compartments the user separated on purpose.
    *
    * @param declaredMode - mode requested in this call, or undefined to use the configured one.
-   * @returns informacion de la conexion.
+   * @returns connection information.
    */
   async connect(declaredMode) {
     const resolved = resolveBrowserMode(declaredMode, this.config)
@@ -312,7 +312,7 @@ export class BrowserService {
    * Runs an expression in the page, re-attaching if the tab changed.
    * @param expression - expresion JavaScript.
    * @param declaredMode - mode requested in this call.
-   * @returns su valor.
+   * @returns its value.
    */
   async evaluate(expression, declaredMode) {
     await this.connect(declaredMode)

@@ -694,7 +694,17 @@ async function captureContent(ctx, result, note) {
 }
 
 /**
- * Registers the `computer` tool on the agent.
+ * Content blocks waiting to be attached to a tool result.
+ *
+ * The registry validates the value a tool returns against `output.schema` with
+ * `additionalProperties: false`, so a `content` inside that value invalidates the
+ * whole result (`INVALID_TOOL_OUTPUT`) and the model receives nothing. Content
+ * travels through `finalizeContent` instead, keyed by the execution.
+ */
+const browserContent = new WeakMap()
+
+/**
+ * Registers both tools on the agent: `browser` (CDP) and `computer` (desktop).
  * @param ctx - agent-scoped services.
  * @param config - resolved plugin configuration.
  */
@@ -805,6 +815,18 @@ export function apply(ctx, config) {
     return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
   }
 
+/**
+ * Registers the `browser` tool: Chrome or Edge over CDP.
+ *
+ * Content blocks wait here, keyed by execution, because the registry validates the
+ * value a tool returns against `output.schema` with `additionalProperties: false`:
+ * a `content` inside that value invalidates the whole result and the model
+ * receives nothing.
+ *
+ * @param ctx - plugin context.
+ * @param browser - the browser service and its action executor.
+ */
+function registerBrowserTool(ctx, browser) {
   ctx.tools.register({
     name: 'browser',
     description: browserDescription(),
@@ -828,9 +850,9 @@ export function apply(ctx, config) {
       return { card: 'generic', title: `Browser: ${args?.action ?? 'action'}` }
     },
     finalizeContent(exec) {
-      const content = pendingContent.get(exec)
+      const content = browserContent.get(exec)
       if (content === undefined) return undefined
-      pendingContent.delete(exec)
+      browserContent.delete(exec)
       return content
     },
     async execute(args, exec) {
@@ -839,7 +861,7 @@ export function apply(ctx, config) {
       if (action === 'screenshot') await assertImageCapableRoute(ctx, exec, action)
       const outcome = await browser.execute(ctx, args)
       if (outcome.image !== undefined) {
-        pendingContent.set(exec, [
+        browserContent.set(exec, [
           { type: 'text', text: `tab capture: ${outcome.image.width}x${outcome.image.height} px` },
           { type: 'image', attachment: outcome.image },
         ])
@@ -847,7 +869,9 @@ export function apply(ctx, config) {
       return { action, result: { ...outcome.result, ...(outcome.text === undefined ? {} : { text: outcome.text }) } }
     },
   })
+}
 
+  registerBrowserTool(ctx, browser)
   registerComputerTool(ctx, resolved, runNative, actionSchema)
 }
 

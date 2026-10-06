@@ -120,6 +120,25 @@ export const BROWSER_ACTIONS = {
     },
     required: [],
   },
+  send: {
+    summary: 'Types into a chat composer and sends it: focuses the element, writes the text and presses Enter. This is the usual way to talk to a web chat like Gemini, ChatGPT or NotebookLM.',
+    parameters: {
+      ...TARGET_FIELDS,
+      text: { type: 'string', required: true, description: 'Message to send.' },
+      newline: { type: 'boolean', description: 'Presses Shift+Enter (a newline) instead of Enter, when you want to write several lines before sending.' },
+    },
+    required: ['text'],
+  },
+  settle: {
+    summary: 'Waits for a streamed answer to finish. A web chat writes its reply token by token, so there is no text to wait for: this watches a region and returns once it stops changing. Use it after send, before reading the answer.',
+    parameters: {
+      selector: { type: 'string', description: 'Region to watch, usually the answer container. Defaults to the whole body.' },
+      quietMs: { type: 'integer', description: 'How long the region must stay unchanged to count as finished, in milliseconds. Defaults to 1200.' },
+      timeoutMs: { type: 'integer', description: 'How long to wait at most. Defaults to 120000.' },
+      ...MODE_FIELD,
+    },
+    required: [],
+  },
 }
 
 /**
@@ -134,6 +153,8 @@ export function browserDescription() {
     'Normal flow: `snapshot`, read the references, then `click` or `type` with the matching `ref`. After any action that changes the page, take a new snapshot: old references stop resolving.',
     'MODE IS MANDATORY: every call carries `mode` with the mode the user chose for THIS task. If you do not know it, ask with ask_user_question before calling, and do not reuse the one from an earlier task.',
     'The three modes are: "own-profile" (isolated browser, touches none of their sessions), "real-profile" (their everyday Chrome, with everything they have open) and "no-browser" (the browser is not touched at all; for banking or personal paperwork).',
+    'Talking to a web chat (Gemini, ChatGPT, NotebookLM, Claude): `snapshot` to find the composer, which is usually a `contenteditable` element marked `editable`, then `send` with its `ref` and your message, then `settle` to wait for the streamed answer to finish, then `snapshot` or `evaluate` to read it.',
+    'Drive a web chat at a human pace: one message, wait for the answer, read it. Do not fire messages in a loop, do not poll the service, and stop when the user says stop. These are the user\'s own accounts and their terms apply.',
     'Use `computer` (vision and real clicking) only when the task leaves the browser or the visual is essential.',
     'Actions:',
     ...lines,
@@ -224,6 +245,38 @@ export function createBrowserService(config) {
         name: `browser-${Date.now()}.png`,
       })
       return { action, result: { ok: true, bytes: bytes.byteLength }, image: reference }
+    }
+
+    if (action === 'send') {
+      if (typeof args.text !== 'string' || args.text.length === 0) throw new Error('browser: send needs text')
+      let target
+      if (args.ref !== undefined || args.selector !== undefined) {
+        target = await service.resolve(args.ref, args.selector, args.mode)
+        // Focus by clicking: a composer that is not focused swallows the text.
+        await service.clickAt(target.x, target.y)
+      }
+      await service.insertText(args.text)
+      // Enter sends in every web chat; Shift+Enter writes a newline instead.
+      await service.pressKey('Enter', args.newline === true ? MODIFIERS.shift : 0)
+      return {
+        action,
+        result: {
+          ok: true,
+          sent: args.text.length,
+          into: target?.label ?? target?.tag ?? 'focused element',
+          newlineInsteadOfSend: args.newline === true,
+        },
+      }
+    }
+
+    if (action === 'settle') {
+      const timeoutMs = Number.isInteger(args.timeoutMs) ? Math.max(1000, Math.min(args.timeoutMs, 300000)) : 120000
+      const outcome = await service.waitForSettled({
+        selector: typeof args.selector === 'string' && args.selector !== '' ? args.selector : undefined,
+        quietMs: Number.isInteger(args.quietMs) ? args.quietMs : 1200,
+        timeoutMs,
+      }, args.mode)
+      return { action, result: { ok: outcome.settled === true, ...outcome } }
     }
 
     if (action === 'wait') {

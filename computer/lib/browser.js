@@ -136,6 +136,7 @@ const INTERACTIVE_SELECTOR = [
   '[role=textbox]',
   '[role=searchbox]',
   '[contenteditable=true]',
+  '[contenteditable=""]',
   '[onclick]',
   '[tabindex]:not([tabindex="-1"])',
 ].join(', ')
@@ -191,10 +192,12 @@ export function snapshotExpression(maxElements, maxTextChars) {
     index.set(el, ref)
     const entry = { ref, tag: el.tagName.toLowerCase(), label: label(el) }
     const type = el.getAttribute('type')
-    if (type) entry.type = type
+    if (type && type !== 'text') entry.type = type
+    if (el.isContentEditable === true || el.getAttribute('contenteditable') !== null) entry.editable = true
     if (el.disabled) entry.disabled = true
     if (el.checked !== undefined) entry.checked = el.checked
-    if (el.value !== undefined && typeof el.value === 'string' && el.value !== '') entry.value = el.value.slice(0, 80)
+    const value = el.isContentEditable === true ? (el.innerText ?? '') : el.value
+    if (typeof value === 'string' && value.trim() !== '') entry.value = value.trim().slice(0, 120)
     const css = cssPath(el)
     if (css) entry.selector = css
     if (rect.bottom < 0 || rect.top > innerHeight) entry.offscreen = true
@@ -446,6 +449,79 @@ export class BrowserService {
       await new Promise((resolve) => setTimeout(resolve, Math.min(400, Math.max(100, Math.floor(options.timeoutMs / 20)))))
     }
     return { found: false, waitedMs: Date.now() - started }
+  }
+
+  /**
+   * Waits until a region stops changing: the end of a streamed answer.
+   *
+   * Web chats answer by streaming tokens into the DOM, so "the answer is ready" is
+   * not a text you can wait for — it is the moment the text stops growing. This
+   * watches the length of a region and considers it settled once it has not
+   * changed for `quietMs`.
+   *
+   * Two details that matter in practice:
+   *
+   * - The stream moves the length only up. A shrink means the model restarted or
+   *   edited its answer, so the quiet clock restarts.
+   * - A control that says "stop generating", or an `aria-busy` region, is a much
+   *   stronger signal than a timer. When it is present the region is not settled,
+   *   however long the text has been still.
+   *
+   * @param options - selector, quiet period and limit.
+   * @param declaredMode - mode requested in this call.
+   * @returns whether it settled, how long it waited, and the text length.
+   */
+  async waitForSettled(options, declaredMode) {
+    const started = Date.now()
+    const deadline = started + options.timeoutMs
+    const selector = options.selector ?? 'body'
+    const quietMs = Math.max(200, Math.min(options.quietMs ?? 1200, 30000))
+    const probe = `(() => {
+  const node = document.querySelector(${JSON.stringify(selector)})
+  if (!node) return { exists: false }
+  const text = (node.innerText || '').slice(0, 400000)
+  const stop = document.querySelector('button[aria-label*="Stop" i], button[data-testid*="stop" i], [aria-label*="detener" i]')
+  const busy = document.querySelector('[aria-busy="true"]')
+  return { exists: true, length: text.length, pending: stop !== null || busy !== null }
+})()`
+
+    let previousLength = -1
+    let lastChange = Date.now()
+    let lastProbe = { exists: false, length: 0, pending: false }
+
+    while (Date.now() < deadline) {
+      let probeResult
+      try {
+        probeResult = await this.evaluate(probe, declaredMode)
+      } catch {
+        probeResult = undefined
+      }
+      if (probeResult !== undefined && probeResult !== null && probeResult.exists === true) {
+        lastProbe = probeResult
+        if (probeResult.length > previousLength) {
+          previousLength = probeResult.length
+          lastChange = Date.now()
+        } else if (probeResult.length < previousLength) {
+          // The answer was rewritten: start the quiet clock again.
+          previousLength = probeResult.length
+          lastChange = Date.now()
+        }
+        if (probeResult.pending === false && Date.now() - lastChange >= quietMs) {
+          return { settled: true, waitedMs: Date.now() - started, chars: probeResult.length, sawStopControl: false }
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+
+    return {
+      settled: false,
+      waitedMs: Date.now() - started,
+      chars: lastProbe.length ?? 0,
+      stillGenerating: lastProbe.pending === true,
+      hint: lastProbe.exists === false
+        ? `no element matched ${JSON.stringify(selector)}, so there was nothing to watch`
+        : 'it kept changing until the limit; call settle again to keep waiting',
+    }
   }
 
   /** Closes the connection and the browser we launched. */
